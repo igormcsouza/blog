@@ -3,12 +3,12 @@ import { Metadata } from "next";
 import { posts } from "#site/content";
 import { Tag } from "@/components/tag";
 
-export const metadata: Metadata = {
+const metadata: Metadata = {
   title: "Tags",
   description: "Topic I've written about",
 };
 
-export default async function TagsPage() {
+export default function TagsPage() {
   const tags = getAllTags(posts);
   const sortedTags = sortTagsByCount(tags);
 

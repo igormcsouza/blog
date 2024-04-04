@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { ItalicIcon, Moon, Sun } from "lucide-react";
+import { ItalicIcon } from "lucide-react";
 import Link from "next/link";
 import { ReactNode } from "react";
 
@@ -18,12 +18,12 @@ export default function Header({ children }: { children: ReactNode }){
               </a>
             </li>
             <li>
-              <a href="/">
+              <a href="/blog">
                 <Button variant={"ghost"}>Blog</Button>
               </a>
             </li>
             <li>
-              <a href="/tags">
+              <a href="/blog/tags">
                 <Button variant={"ghost"}>Tags</Button>
               </a>
             </li>

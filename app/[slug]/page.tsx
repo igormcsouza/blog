@@ -2,7 +2,6 @@ import { posts } from "#site/content";
 import { MdxComponent } from "@/components/mdx-component";
 import { notFound } from "next/navigation";
 import Image from "next/image";
-import { Metadata } from "next";
 import { Tag } from "@/components/tag";
 import ScrollProgress from "@/components/scroll-progress";
 import { Calendar, Clock } from "lucide-react";
@@ -23,24 +22,14 @@ async function getPostFromParams(params: PostPageProps["params"]) {
   return post;
 }
 
-export async function generateMetadata({
-  params,
-}: PostPageProps): Promise<Metadata> {
-  const post = await getPostFromParams(params);
-
-  if (!post) {
-    return {};
-  }
-
-  return {
-    title: post.title,
-    description: post.description,
-    authors: { name: "Igor Souza" },
-  };
+export async function generateStaticParams(): Promise<
+  PostPageProps["params"][]
+> {
+  return posts.map((post) => ({ slug: post.slug }));
 }
 
-export default async function PostPage({ params }: PostPageProps) {  
-  const post = await getPostFromParams(params);
+export default async function PostPage({ params }: PostPageProps) {
+  const post = await getPostFromParams(params)
 
   if (!post || !post.published) {
     notFound();
@@ -64,7 +53,7 @@ export default async function PostPage({ params }: PostPageProps) {
         ))}
       </div>
       <div className="flex gap-4 items-center">
-        <Image className="rounded-full m-0 p-0" src="/static/igormcsouza.png" width={36} height={36} alt="Author: Igor Souza" />
+        <Image className="rounded-full m-0 p-0" src="/blog/static/igormcsouza.png" width={36} height={36} alt="Author: Igor Souza" />
         <span className="text-sm sm:text-base font-medium">{post.author}</span>
         <dl>
           <dt className="sr-only">Published On</dt>

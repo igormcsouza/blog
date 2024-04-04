@@ -1,6 +1,5 @@
 import { posts } from "#site/content";
 import { PostItem } from "@/components/post-item";
-import { QueryPagination } from "@/components/query-pagination";
 import { Tag } from "@/components/tag";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAllTags, sortPosts, sortTagsByCount } from "@/lib/utils";
@@ -11,23 +10,8 @@ const metadata: Metadata = {
   description: "Stunning things I've learned and want to share",
 };
 
-const POSTS_PER_PAGE = 5;
-
-interface BlogPageProps {
-  searchParams: {
-    page?: string;
-  };
-}
-
-export default async function BlogPage({ searchParams }: BlogPageProps) {
-  const currentPage = Number(searchParams?.page) || 1;
+export default function BlogPage() {
   const sortedPosts = sortPosts(posts.filter((post) => post.published));
-  const totalPages = Math.ceil(sortedPosts.length / POSTS_PER_PAGE);
-
-  const displayPosts = sortedPosts.slice(
-    POSTS_PER_PAGE * (currentPage - 1),
-    POSTS_PER_PAGE * currentPage
-  );
 
   const tags = getAllTags(posts);
   const sortedTags = sortTagsByCount(tags);
@@ -45,9 +29,9 @@ export default async function BlogPage({ searchParams }: BlogPageProps) {
       <div className="grid grid-cols-12 gap-3 mt-8">
         <div className="col-span-12 col-start-1 sm:col-span-8">
           <hr />
-          {displayPosts?.length > 0 ? (
+          {sortedPosts?.length > 0 ? (
             <ul className="flex flex-col">
-              {displayPosts.map((post) => {
+              {sortedPosts.map((post) => {
                 const { slug, date, title, description, tags } = post;
                 return (
                   <li key={slug}>
@@ -65,10 +49,6 @@ export default async function BlogPage({ searchParams }: BlogPageProps) {
           ) : (
             <p className="mt-4">Nothing to see here yet</p>
           )}
-          <QueryPagination
-            totalPages={totalPages}
-            className="justify-end mt-4"
-          />
         </div>
         <Card className="col-span-12 row-start-3 h-fit sm:col-span-4 sm:col-start-9 sm:row-start-1">
           <CardHeader>
