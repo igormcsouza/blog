@@ -11,7 +11,7 @@ export default function Header({ children }: { children: ReactNode }){
           <ItalicIcon size={36}/>
         </Link>
         <nav className="my-auto text-xl">
-          <ul className="flex flex-wrap gap-4 sm:gap-16">
+          <ul className="flex flex-wrap sm:gap-16">
             <li>
               <a href="https://igormcsouza.github.io/">
                 <Button variant={"ghost"}>Home</Button>

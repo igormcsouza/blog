@@ -7,7 +7,7 @@ export default function Footer() {
   return (
     <footer className="py-6 lg:py-10">
       <hr className="my-5"/>
-      <div className="flex flex-col sm:flex-row justify-between gap-4 items-center text-muted-foreground">
+      <div className="flex flex-col sm:flex-row justify-between gap-8 items-center text-muted-foreground">
         <ul className="flex flex-col items-center gap-2 px-4">
           {["", "#about", "#projects", "#news"].map((section) => (
             <li key={section}>
@@ -17,7 +17,7 @@ export default function Footer() {
             </li>
           ))}
         </ul>
-        <ul className="flex gap-5">
+        <ul className="flex gap-5 flex-wrap">
           <li>
             <Link href={personalInfo.socialMedias.github}>
               <GitHub />
@@ -43,10 +43,10 @@ export default function Footer() {
             </Link>
           </li>
         </ul>
-        <div className=" max-w-28">Need some help? Talk to me thru the <a className="font-bold underline" href={`mailto:${personalInfo.email}`}>mail</a>.</div>
+        <div className="sm:max-w-28 text-center">Need some help? Talk to me thru the <a className="font-bold underline" href={`mailto:${personalInfo.email}`}>mail</a>.</div>
       </div>
       <div className="flex justify-center pt-3">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground text-center">
           © {new Date().getFullYear()} {personalInfo.name}. All rights reserved.
         </p>
       </div>
