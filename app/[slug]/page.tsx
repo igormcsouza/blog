@@ -6,7 +6,8 @@ import { Tag } from "@/components/tag";
 import ScrollProgress from "@/components/scroll-progress";
 import { Calendar, Clock } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import readingDuration from 'reading-duration' 
+import readingDuration from 'reading-duration'
+import profilePicture from "@/public/static/profile.png";
 
 import "@/styles/mdx.css";
 
@@ -53,7 +54,7 @@ export default async function PostPage({ params }: PostPageProps) {
         ))}
       </div>
       <div className="flex gap-4 items-center">
-        <Image className="rounded-full m-0 p-0" src="/blog/static/igormcsouza.png" width={36} height={36} alt="Author: Igor Souza" />
+        <Image className="rounded-full m-0 p-0" src={profilePicture} width={36} height={36} alt="Author: Igor Souza" />
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
           <span className="text-sm sm:text-base font-medium">{post.author}</span>
           <dl className="p-0 m-0">
