@@ -27,6 +27,9 @@ export default function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" type="image/svg+xml" href="/blog/favicon.svg" />
+      </head>
       <body className={`flex flex-col min-h-[100vh] container max-w-6xl ${inter.className} ${darkMode ? "dark" : "light"}`}>
         <Header>
           <button
