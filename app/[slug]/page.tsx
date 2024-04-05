@@ -41,11 +41,11 @@ export default async function PostPage({ params }: PostPageProps) {
   })
 
   return (
-    <article className="container max-w-4xl py-6 prose dark:prose-invert">
+    <article className="container max-w-2xl py-6 px-0 prose dark:prose-invert">
       <ScrollProgress />
-      <h1 className="mb-2">{post.title}</h1>
+      <h1 className="mb-2 text-center sm:text-left">{post.title}</h1>
       {post.description ? (
-        <p className="text-xl mt-0 text-muted-foreground">{post.description}</p>
+        <p className="text-xl mt-0 text-muted-foreground text-center sm:text-left">{post.description}</p>
       ) : null}
       <div className="flex gap-2 mb-2">
         {post.tags?.map((tag) => (
@@ -54,18 +54,20 @@ export default async function PostPage({ params }: PostPageProps) {
       </div>
       <div className="flex gap-4 items-center">
         <Image className="rounded-full m-0 p-0" src="/blog/static/igormcsouza.png" width={36} height={36} alt="Author: Igor Souza" />
-        <span className="text-sm sm:text-base font-medium">{post.author}</span>
-        <dl>
-          <dt className="sr-only">Published On</dt>
-          <dd className="text-sm sm:text-base font-medium flex items-center gap-1 p-0 m-0">
-            <Calendar className="h-4 w-4" />
-            <time dateTime={post.date}>{formatDate(post.date)}</time>
-          </dd>
-        </dl>
-        <p className="text-sm sm:text-base font-medium flex items-center gap-1">
-          <Clock className="h-4 w-4" />
-          {readingTime}
-        </p>
+        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+          <span className="text-sm sm:text-base font-medium">{post.author}</span>
+          <dl className="p-0 m-0">
+            <dt className="sr-only">Published On</dt>
+            <dd className="text-sm sm:text-base font-medium flex items-center gap-1 p-0 m-0">
+              <Calendar className="h-4 w-4" />
+              <time dateTime={post.date}>{formatDate(post.date)}</time>
+            </dd>
+          </dl>
+          <p className="text-sm sm:text-base font-medium flex items-center gap-1 p-0 m-0">
+            <Clock className="h-4 w-4" />
+            {readingTime}
+          </p>
+        </div>
       </div>
       <hr className="my-4" />
       <MdxComponent code={post.body} />
