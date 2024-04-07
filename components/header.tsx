@@ -1,9 +1,9 @@
+import ChangeThemeButton from "@/components/change-theme-button";
 import { Button } from "@/components/ui/button";
 import { ItalicIcon } from "lucide-react";
 import Link from "next/link";
-import { ReactNode } from "react";
 
-export default function Header({ children }: { children: ReactNode }){
+export default function Header(){
   return (
     <header className="py-6 lg:py-10">
       <div className="flex gap-4 flex-row justify-between md:gap-8">
@@ -13,9 +13,9 @@ export default function Header({ children }: { children: ReactNode }){
         <nav className="my-auto text-xl">
           <ul className="flex flex-wrap sm:gap-16">
             <li>
-              <a href="https://igormcsouza.github.io/">
+              <Link href="https://igormcsouza.github.io/">
                 <Button variant={"ghost"}>Home</Button>
-              </a>
+              </Link>
             </li>
             <li>
               <a href="/blog">
@@ -29,7 +29,7 @@ export default function Header({ children }: { children: ReactNode }){
             </li>
           </ul>
         </nav>
-        {children}
+        <ChangeThemeButton />
       </div>
     </header>
   );

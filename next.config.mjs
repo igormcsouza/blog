@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  basePath: "/blog"
+  basePath: "/blog",
 };
 
 export default nextConfig;
