@@ -10,6 +10,12 @@ import readingDuration from 'reading-duration'
 import profilePicture from "@/public/static/profile.png";
 
 import "@/styles/mdx.css";
+import { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Post",
+  description: "Topic I've written about",
+};
 
 interface PostPageProps {
   params: {
