@@ -2,36 +2,57 @@
 title: We need to talk about GIL!
 description: Python Global Interpreter Lock might not be as bad as you may think.
 author: Igor Souza
-date: 2024-04-09
+date: 2024-04-11
 published: true
 tags: ["python", "gil", "concurrency"]
 ---
-Since I've started working with Python I hear people saying that GIL (Global Interpreter Lock) is a big shame to Python and that it is a single-threaded language and stuff like that. No one likes GIL and there is a lot of work to make Python give up on GIL (see [pep684](https://peps.python.org/pep-0684/) and [pep703](https://peps.python.org/pep-0703/)). But I think that GIL is not as bad as people say. Let me explain why.
+Since I started working with Python, I've often heard people criticize the Global Interpreter Lock (`GIL`) and claim that Python is a single-threaded language. While it's true that the `GIL` can limit the parallel execution of CPU-bound tasks, it's important to understand that Python's threading model still allows for concurrent execution of multiple threads, especially for I/O-bound tasks.
+
+Attempting to remove the `GIL` without careful consideration can introduce serious issues and unpredictable behavior. However, it's worth noting that efforts are being made to address the limitations of the `GIL`. The Python community is actively exploring proposals, such as [PEP 703](https://peps.python.org/pep-0703/), which aims to provide users with the option to choose between `GIL` and `non-GIL` flavors of Python.
+
+In the meantime, Python offers powerful tools to work around the `GIL`. For I/O-heavy tasks, Python's threading model can still provide significant performance benefits. Additionally, the `Asyncio` library allows for concurrent execution of I/O-bound tasks in a single-threaded, single-process environment (See also [Grok the GIL: How to write fast and thread-safe Python - PyCon 2019](https://www.youtube.com/watch?v=Obt-vMVdM8s)).
 
 ## Anyway, what is GIL after all?
 
-GIL is a mutex that protects access to Python objects, preventing multiple threads from executing Python bytecodes at the same time. This means that only one thread can execute Python code at a time. This might be an issue for CPU-bound tasks because it prevents Python from using multiple cores to execute code in parallel. But for I/O-bound tasks, GIL is great, because the thread is blocked waiting for I/O, so the GIL is released and other threads can run.
+`GIL` is a mutex that protects access to Python objects, preventing multiple threads from executing Python bytecodes at the same time. This means that only one thread can execute Python code at a time. This might be an issue for CPU-bound tasks because it prevents Python from using multiple cores to execute code in parallel. But for I/O-bound tasks, `GIL` does not interfere, because while the thread is blocked waiting for I/O, `GIL` is released and other threads can pick it up and continue its job.
 
-Using a global shared lock is a simple way to solve this synchronization, deadlocks and scheduling problem. 
-
-<Callout icon=">">
+<Callout icon="💡" type="informative">
 A mutex is a synchronization primitive that is used to protect shared resources from being accessed by multiple threads at the same time. It is like a lock that only one thread can hold at a time. When a thread wants to access a shared resource, it needs to acquire the mutex. If the mutex is already held by another thread, the thread will be blocked until the mutex is released.
 </Callout>
 
-It's not the best solution, but it's simple and works for most cases. That simplicity makes it so hard to remove GIL for good because it would require a lot of changes in the CPython implementation and would be very difficult to reproduce the same quality and performance that we have today.
+Using a global shared lock is a simple way to solve this synchronization, deadlocks and scheduling problem. It has been working since Python 1. Bring stability and simplicity to the language.
 
-### Wait a minute... There are a lot of 5-dollar words there, what about deadlocks?
+See more about [Python Global Interpreter Lock (GIL) - Real Python](https://realpython.com/python-gil/).
+
+<Card>
+**Wait a minute... There are a lot of 5-dollar words there, what about deadlocks?**
 
 Deadlocks are a situation where two or more threads are waiting for each other to release a resource that they need to continue. This situation can happen when two threads are holding a resource and waiting for the other to release the resource that they need. This will cause both threads to be blocked forever, waiting for each other to release the resource.
 
-<Image src="/blog/static/we-need-to-talk-about-gil/deadlocks-example.png" width="896" height="0"/>
+<Image
+    src="/blog/static/we-need-to-talk-about-gil/deadlocks-example.png"
+    width="896"
+    height="0"
+    alt="Representation of a deadlock, when two threads are waiting for each other to release a resource."
+/>
+</Card>
 
-### Issues found by the community with removing GIL
+It's not the best solution, but it's simple and works for most cases. That simplicity makes it so hard to remove `GIL` for good because it would require a lot of changes in the CPython implementation and would be very difficult to reproduce the same quality and performance that we have today.
 
-One of the biggest issues with removing GIL for good is the `Reference Counter`. Python uses it to manage memory and free objects when they are no longer used and it is not thread-safe, so if we remove GIL, we need to find a way to make it thread-safe. This is a very hard problem to solve and would require a lot of changes in the CPython implementation.
+A misconception people have about Python is that `GIL` makes Python a Single-Threaded language. Which is very wrong. Even tho only one thread can execute Python code at a time, multiple threads can be created and run concurrently, as long as they don't need to use the same resources at the same time.
 
-<Callout icon=">">
-Imagine that you have a variable that is shared between multiple threads. If everybody is using it at the same time, changing its values, we cannot guarantee that the value will be the same for all threads. This is what we call not thread-safe. To make it thread-safe, we need to use locks to protect the variable and make sure that only one thread can access it at a time. Some important data structures in Python are not thread-safe, like the `Reference Counter`, and that's why we need GIL to protect them.
+There are many packages out there that decided to drop `GIL` at C level and implement their locks, like [Numpy](https://numpy.org/devdocs/release/1.9.0-notes.html#highlights) and [Scipy](https://docs.scipy.org/doc/scipy/tutorial/special.html#releasing-the-gil), those packages are very cautious about the performance and quality of their code, so they have a lot of tests to make sure that everything is working as expected, even tho they didn't drop the `GIL` for good, but only on places where that is possible. So keep that in mind before thinking that dropping `GIL` is just like running a different function.
+
+## Limitations to address to remove the GIL
+
+See more about that at [Overview of CPython Changes](https://peps.python.org/pep-0703/#overview-of-cpython-changes) topic on **PEP 703**, for how the community is thinking about tackling them off.
+
+- Reference Counter
+
+One of the biggest issues with removing `GIL` for good is the `Reference Counter`. Python uses it to manage memory and free objects when they are no longer used and it is not thread-safe, so if we remove `GIL`, we need to find a way to make it thread-safe. This is a very hard problem to solve and would require a lot of changes in the CPython implementation.
+
+<Callout icon="💡" type="informative">
+Imagine that you have a variable that is shared between multiple threads. If everybody is using it at the same time, changing its values, we cannot guarantee that the value will be the same for all threads. This is what we call thread-safe. To make it thread-safe, we need to use locks to protect the variable and make sure that only one thread can access it at a time. Some important data structures in Python are not thread-safe, like the `Reference Counter`, and that's why we need `GIL` to protect them.
 </Callout>
 
 Python sets a counter to every object that increments when a new reference is created and decrements when the reference is deleted. When the counter reaches zero, the object is deleted. This counter is global and shared between all threads. There are many ways to make this counter be updated safely, like making the update atomic, but that would cost a lot of performance.
@@ -68,11 +89,23 @@ In this example, two threads are created that increment a shared variable `share
 
 When running this code, you may observe that the final value of `shared_variable` is not necessarily 2,000,000 as expected due to the incoherences caused by the lack of a global lock.
 
-But don't you worry, the [pep703](https://peps.python.org/pep-0703/) is an actual proposal to remove GIL from Python, but giving the option to the user to select which "flavor" of Python to use, with or without GIL. It is still in the early stages tho and there is a lot of work to be done, we expect to see it on Python 3.13, so stay tuned.
+But don't you worry, the [PEP 703](https://peps.python.org/pep-0703/) is an actual proposal to remove `GIL` from Python, but giving the option to the user to select which "flavor" of Python to use, with or without `GIL`. It is still in the early stages tho and there is a lot of work to be done, we expect to see it on Python 3.13, so stay tuned.
 
-## What if I need to run I/O heavy tasks?
+- Container thread-safety
 
-That's the best scenario for Python. Since GIL is released when a thread is blocked waiting for I/O, you can use threads to run I/O-heavy tasks and take advantage of the GIL. This is the reason why Python is so popular for web scraping, web servers, and other I/O-heavy tasks.
+When it comes to `container thread-safety`, the `GIL` can cause challenges in managing data structures like dictionaries (PyDict) and lists in a multi-threaded environment. The `GIL` restricts access to these containers by multiple threads, potentially leading to race conditions, data corruption, or inconsistent results if not properly handled.
+
+In the context of the Python ecosystem, library authors often need to design workarounds to address the limitations imposed by the `GIL`. These workarounds can introduce complexity, making APIs more difficult to use and increasing the risk of errors related to thread synchronization.
+
+For example, in the case of PyTorch's DataLoader API, the use of fork() on Linux to improve performance can lead to challenges for users, such as confusing CUDA errors when accessing GPUs within a DataLoader worker. Similarly, in projects like `scikit-learn` and `NumPy`, developers have to maintain ancillary libraries and use multiprocessing solutions to work around the limitations of the `GIL`, resulting in increased complexity and confusion for users.
+
+## How to get around the GIL
+
+There are many ways to write good parallel code even with `GIL`, by making thread-safe operations and using the correct feature for each challenge. Let's see some examples.
+
+### Dealing with I/O heavy tasks
+
+That's the best scenario for Python. Since `GIL` is released when a thread is blocked waiting for I/O, you can use threads to run I/O-heavy tasks and take advantage of the `GIL`. This is the reason why Python is so popular for web scraping, web servers, and other I/O-heavy tasks.
 
 That's why we have the library `Asyncio` which is a single-threaded, single-process library that allows you to run I/O-bound tasks concurrently.
 
@@ -95,13 +128,17 @@ async def main():
 asyncio.run(main())
 ```
 
-In this example, the `asyncio.sleep(seconds)` represents any I/O operation (like writing/reading files, calls to API, etc). When the task is waiting for the I/O operation to finish, the GIL is released and other tasks can run.
+In this example, the `asyncio.sleep(seconds)` represents any I/O operation (like writing/reading files, calls to API, etc). When the task is waiting for the I/O operation to finish, the `GIL` is released and other tasks can run.
 
-## What about CPU-bound tasks?
+<Callout icon="⚡" type="danger">
+When designing your application that needs to run in different threads, you need to always think about the `GIL` and if a thread is sitting waiting for something else, the `GIL` must be released, so that other threads can benefit from it and run as well. I've seen a lot of effort to make that happen, especially in the community, see this [Pandas Pull Request](https://github.com/pandas-dev/pandas/issues/13745) to release the `GIL` on a certain pandas operation.
+</Callout>
 
-If you need to run CPU-bound tasks, you can use the `multiprocessing` library to run tasks in parallel processes. Since each process has its own memory space, the GIL is not a problem.
+## Working with CPU-bound tasks
 
-```python showLineNumbers
+If you need to run CPU-bound tasks in parallel, you can use the `multiprocessing` library to run tasks in parallel processes. Since each process has its own memory space, the `GIL` will be different for each process, allowing you to run CPU-bound tasks in parallel.
+
+```python {19} showLineNumbers
 import multiprocessing
 
 def square_numbers(numbers, result, index):
@@ -132,6 +169,42 @@ if __name__ == "__main__":
 
 In this example, we define a function `square_numbers` that calculates the square of each number in a given list. We then divide the list of numbers into chunks based on the number of available CPU cores and create multiple processes to handle each chunk concurrently. The squared numbers are stored in a shared list using a Manager object. Finally, we start and join the processes to wait for them to finish before printing the result.
 
+Keep in mind that the `GIL` still exists within each process, so if you have CPU-bound tasks that don't release the `GIL` (e.g., pure Python computations), you may not see significant performance improvements compared to using threads. However, for I/O-bound tasks or tasks that involve external processes or libraries that release the `GIL`, multiprocessing can provide substantial benefits in terms of parallelism.
+
+Since Python 3.12 (see [PEP 684](https://peps.python.org/pep-0684/)) you can also run multiple interpreters in the same process, which is a great way to run CPU-bound tasks in parallel without the need to create multiple processes. This is still experimental and may not be the best solution for all cases, but it is a great way to run CPU-bound tasks in parallel without the overhead of creating multiple processes. Let's see an example:
+
+```python {2,5} showLineNumbers
+import threading
+from subinterpreters import SubInterpreter
+
+def worker():
+    with SubInterpreter() as interp:
+        # Your code in this subinterpreter
+        print(f'Interpreter ID: {interp.id}')
+
+if __name__ == '__main__':
+    num_threads = 3
+    threads = []
+    for _ in range(num_threads):
+        thread = threading.Thread(target=worker)
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    print('All threads completed')
+```
+
+Each "interpreter" (whether subinterpreter or separate Python process) runs in its isolated environment, allowing for some degree of parallelism within the same process. However, managing communication and coordination between these interpreters can be complex and may require synchronization mechanisms like queues or shared memory.
+
 ## Conclusion
 
-GIL is not as bad as people say. It is a simple solution to a complex problem and works well in most cases. It indeed prevents Python from using multiple cores to run CPU-bound tasks in parallel, but it is not a problem for I/O-bound tasks. If you need to run CPU-bound tasks, you can use the `multiprocessing` library to run tasks in parallel processes. If you need to run I/O-bound tasks, you can use the `asyncio` library to run tasks concurrently in a single thread. There are many ways to work around GIL and take advantage of Python's strengths. So, don't be afraid of GIL, embrace it and use it to your advantage!
+The Global Interpreter Lock (`GIL`) in Python can limit the parallel execution of CPU-bound tasks, but it doesn't prevent concurrent execution of multiple threads for I/O-bound tasks. While efforts are being made to address the limitations of the `GIL`, it's important to understand that Python offers powerful tools to work around it. 
+
+### Further Reading
+- [Python Concurrency & Parallel Programming](https://realpython.com/learning-paths/python-concurrency-parallel-programming/)
+- [Asynchronous I/O](https://docs.python.org/3/library/asyncio.html)
+- [Bypassing the GIL for Parallel Processing in Python](https://realpython.com/python-parallel-processing/)
+
+Remember to always consider the specific requirements of your tasks and choose the appropriate approach to maximize performance and efficiency.
