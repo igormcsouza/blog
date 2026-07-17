@@ -1,0 +1,139 @@
+---
+title: "Containerization: A Chroot with Steroids"
+description: Exploring the concept of containerization and how it enhances process isolation and resource management.
+author: Igor Souza
+date: 2026-07-19
+published: true
+tags: ["containerization", "chroot", "process isolation", "resource management"]
+---
+
+The very first thing I struggled with when I started studying computer science was environments. I remember clearly that we needed to have a preferred computer in the laboratory where we could run our code and where the teacher could test our changes. The phrase "Works on my machine" was spread throughout the course, and it was annoying as hell—especially when working with languages like C, where there are countless configuration options to choose from.
+
+It wasn't until I started working with Linux—and using it as my main operating system—that I discovered I could package all my code and dependencies into a single file and run it anywhere. This was my first encounter with containerization, and it was a game changer. But for a long time, Docker remained a black box to me. I couldn't understand what was happening under the hood. I just knew it was a way to run my code in a consistent environment, regardless of where I deployed it.
+
+I was always so proud to have `Docker` on my resume, but one day I got a question in an interview that caught me off guard: "What is actually a container? How does Docker work behind the scenes?" I realized that I didn't truly understand the technology I was so proud of. So I started digging deeper into the concept of containerization and what it really means. Here's what I discovered: that big, scary monster wasn't so intimidating after all.
+
+## What is Containerization after all
+
+At its core, containerization is a method of operating system-level virtualization that allows you to package an application and its dependencies into a lightweight, portable unit called a container. Think of it as creating a self-contained environment where your application can run consistently, regardless of the underlying system. Unlike traditional deployment methods where applications might behave differently across various machines due to different libraries, system configurations, or dependency versions, containers ensure that your application carries everything it needs to run properly. This isolation is achieved by leveraging Linux kernel features like namespaces and cgroups to create separate execution environments within the same operating system.
+
+<Callout icon="💡" type="informative">
+That's right, everything we see under the hood in a Docker/Podman container is just fancy Linux kernel features.
+</Callout>
+
+And that is the key difference between containers and virtual machines, which lies in their architecture and resource usage. Virtual machines virtualize entire hardware systems, running a complete guest operating system on top of a hypervisor, which means each VM requires its own kernel, drivers, and system processes. This makes VMs resource-heavy and slower to start. Containers, on the other hand, share the host operating system's kernel while maintaining process isolation. They virtualize at the operating system level rather than the hardware level, making them much lighter, faster to start, and more efficient in terms of resource consumption. A single host can run dozens or even hundreds of containers with minimal overhead compared to running the same number of VMs.
+
+This isolation mechanism is what makes containers so powerful for modern software development and deployment. Each container has its own filesystem, network interface, and process space, but they all share the same kernel. This means containers can't interfere with each other or with the host system, providing security and stability benefits. When you run a containerized application, it behaves as if it's running on its own dedicated machine, but without the overhead of actually virtualizing hardware. This concept builds upon earlier Unix technologies like `chroot`, which provided basic filesystem isolation, but extends it with comprehensive process, network, and resource isolation—essentially making it a "chroot with steroids."
+
+## What is CHROOT, and how it does this isolation
+
+The story of `chroot` (change root) begins in the early days of Unix development, dating back to 1979 when it was first introduced in Unix V7. This seemingly simple command became one of the foundational building blocks of modern containerization technology. At its core, `chroot` is like a powerful version of the `cd` command that doesn't just change your current directory—it fundamentally alters what your process considers to be the root filesystem. When you execute `chroot /path/to/new/root`, you're essentially telling the system: "From now on, this directory is my new `/`, and I can't see anything above it."
+
+This filesystem isolation capability makes `chroot` incredibly useful for creating isolated environments. Many Linux users have already experienced `chroot` without realizing it, particularly during operating system installations. When installing Arch Linux, for example, you create a new filesystem on your target partition, mount it, and then `chroot` into it. This allows you to run commands as if you're already booted into the new system, even though you're still running from the installation media. You can install packages, configure the system, and set up the bootloader—all from within this chrooted environment that treats your new filesystem as the complete operating system.
+
+The magic happens because once you're inside a chroot jail (as it's often called), your process and all its children can only see the filesystem tree starting from the new root directory. If you `chroot` into `/mnt/my-new-system` and then try to access `/etc/passwd`, you're actually accessing `/mnt/my-new-system/etc/passwd` from the host's perspective. But from inside the chroot, it appears as if `/mnt/my-new-system` is the entire universe—there's simply no way to navigate "up" beyond what you've defined as root. This creates a sandbox where processes can't accidentally (or maliciously) access files outside their designated area.
+
+When you create a new filesystem—whether it's a fresh installation, a backup restoration, or even just a directory structure with the necessary system files—and chroot into it, it's remarkably similar to running a completely different operating system within that terminal session. You can have different versions of libraries, different configurations, even different distributions entirely, all isolated from your host system. This isolation was revolutionary for system administration, software testing, and security applications. System administrators could test dangerous operations in isolated environments, developers could build software in clean environments, and security-conscious users could run untrusted applications in sandboxes.
+
+However, `chroot` has significant limitations that become apparent when you need more comprehensive isolation. While it effectively isolates the filesystem view, it does nothing to isolate other system resources. Processes inside a chroot can still see all running processes on the system through `/proc`, they share the same network interfaces, and they can consume unlimited system resources like CPU and memory. A process in a chroot can also potentially escape the jail through various means if it has sufficient privileges. This is where `chroot` shows its age—it was designed in an era when complete process isolation wasn't a primary concern.
+
+This is precisely why modern containerization needed to evolve beyond `chroot`. While filesystem isolation was a crucial first step, true container isolation requires control over process visibility, network access, resource consumption, and user permissions. The Linux kernel developers recognized this need and introduced more sophisticated mechanisms like cgroups (control groups) and namespaces, which work together with enhanced filesystem isolation to create the comprehensive container environments we use today. These technologies build upon the foundation that `chroot` established, extending the concept of isolation from just the filesystem to encompass the entire process environment.
+
+## Namespaces and Cgroups: The Building Blocks of Containerization
+
+If `chroot` answers the question "what files can my process see?", namespaces and cgroups answer the two questions that were left open: "what *else* can my process see?" and "how much of the machine can it use?". Once you understand these two features, the mystery around containers is basically over.
+
+Namespaces are the kernel's way of lying to a process about the world around it. When you create a new namespace, the kernel hands the process a fresh, private copy of some global resource, and the process happily believes that copy is the whole truth. There are several namespace types, each one wrapping a different part of the system: the `PID` namespace gives the process its own process tree (inside it, your process is PID 1, like it's the only thing running on the machine), the `mount` namespace gives it a private view of mounted filesystems, the `network` namespace gives it its own network interfaces, routing tables and ports, the `UTS` namespace lets it have its own hostname, the `IPC` namespace isolates shared memory and message queues, and the `user` namespace lets a regular user pretend to be root inside the container without being root on the host. You can actually see the namespaces of your current system by running `lsns` on any modern Linux machine.
+
+<Callout icon="💡" type="informative">
+This is why running `ps aux` inside a Docker container only shows your application's processes, and why two containers can both bind to port 80 without fighting each other. They are not seeing "less" of the system—they are each seeing their own private copy of it.
+</Callout>
+
+Namespaces solve visibility, but they do nothing about consumption. A process inside a namespace can still eat all the CPU and memory of the host, and that's where cgroups (control groups) come in. Cgroups let the kernel group processes together and put hard limits on the resources that group can use: CPU time, memory, disk IO, number of processes, and so on. The whole thing is exposed as a filesystem under `/sys/fs/cgroup`, and configuring it is literally just writing numbers into files. When you run `docker run --memory=512m`, Docker is not doing anything magical—it is creating a cgroup, writing `512M` into its memory limit file, and placing your process inside it. If the process tries to go beyond that, the kernel's OOM killer steps in and kills it.
+
+So here is the recipe for a container, and it's surprisingly short: take a normal Linux process, give it a private root filesystem (`chroot`, or its more robust cousin `pivot_root`), wrap it in namespaces so it can't see the rest of the system, and put it inside a cgroup so it can't starve the rest of the system. That's it. There is no "container object" in the Linux kernel—a container is just a regular process wearing a very good disguise.
+
+## Building Your Own Container with Nothing but Linux
+
+Talk is cheap, so let's build one. No Docker, no Podman, nothing but tools that ship with (or are one package away from) any Linux distribution. First we need a root filesystem for our container—a directory containing the minimal files an operating system needs. Alpine Linux publishes a "mini root filesystem" tarball that is perfect for this, weighing only about 3 MB:
+
+```bash showLineNumbers
+mkdir -p ~/my-container/rootfs
+cd ~/my-container
+curl -LO https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-3.20.0-x86_64.tar.gz
+tar -xzf alpine-minirootfs-3.20.0-x86_64.tar.gz -C rootfs
+```
+
+If we stopped here and just ran `sudo chroot rootfs /bin/sh`, we would have a 1979-style jail: isolated filesystem, but shared everything else. To get the full experience we bring in `unshare`, a small utility from `util-linux` whose only job is to launch a process inside new namespaces:
+
+```bash {1} showLineNumbers
+sudo unshare --pid --fork --mount --uts --ipc --net chroot rootfs /bin/sh
+# Now, inside our "container":
+hostname my-little-container
+mount -t proc proc /proc
+ps aux
+```
+
+Take a moment to appreciate what just happened. The `--pid` flag gave us a new process tree—run `ps aux` after mounting `/proc` and you will see only two processes, with our shell believing it is nearly PID 1. The `--uts` flag let us change the hostname without affecting the host. The `--net` flag gave us our own (empty) network stack. And `chroot` locked our view of the filesystem inside the Alpine directory. From inside, this is indistinguishable from a minimal Docker container.
+
+The last missing ingredient is resource limiting, and for that we just talk to the cgroup filesystem directly. On a modern distribution using cgroups v2, limiting our container to 100 MB of memory looks like this:
+
+```bash showLineNumbers
+sudo mkdir /sys/fs/cgroup/my-little-container
+echo "100M" | sudo tee /sys/fs/cgroup/my-little-container/memory.max
+echo <PID_OF_THE_CONTAINER_SHELL> | sudo tee /sys/fs/cgroup/my-little-container/cgroup.procs
+```
+
+Congratulations—you have just built a container by hand. A private filesystem, private process tree, private hostname, private network, and a memory limit, all with three commands and zero Docker. This is, honestly, the core of what Docker does when you type `docker run`. Everything else—images, layers, registries, volumes, networking conveniences—is machinery built on top of this small kernel-feature sandwich. Extremely useful machinery, but machinery nonetheless.
+
+<Callout icon="⚡" type="danger">
+Don't use this handmade container for anything serious. Real container runtimes handle a lot of subtle security details—dropping capabilities, seccomp filters, using `pivot_root` instead of `chroot` to prevent escapes—that our little experiment ignores. The point here is understanding, not production readiness.
+</Callout>
+
+## Why Docker Needs a Virtual Machine on Windows and macOS
+
+Here is where the "containers share the host kernel" idea stops being trivia and starts explaining real-world behavior. Everything we did above—namespaces, cgroups, chroot—are features of the **Linux kernel**. They are not POSIX standards, they are not available on Windows, and they are not available on macOS. A Linux container cannot run without a Linux kernel underneath it, period.
+
+So how does Docker Desktop work on your Windows or Mac laptop? Simple: it cheats. It quietly runs a lightweight Linux virtual machine and puts every single container inside it. On Windows, that VM is managed by WSL2 (or Hyper-V in older setups); on macOS, it uses Apple's Virtualization framework. The `docker` command you type in PowerShell or in the macOS terminal is not running containers on Windows or macOS at all—it is sending instructions to a Linux VM that does the actual work.
+
+<Card>
+**Wait, so are containers on my Mac lighter than VMs or not?**
+
+This is the asterisk nobody mentions. On Linux, containers really are just processes—starting one costs almost nothing. On Windows and macOS, you pay the cost of one Linux VM first (that's the memory Docker Desktop eats on your laptop), and then all your containers run cheaply *inside* that single VM. It's still much better than one VM per application, but the famous "containers are lightweight" claim comes with fine print outside of Linux.
+</Card>
+
+This also explains some everyday annoyances: why file sharing between your Mac and your containers can be slow (files are crossing a VM boundary), and why `localhost` networking sometimes needs special handling (your container's "host" is the VM, not your laptop). None of these are Docker bugs—they are the geometry of running a Linux-only technology on a non-Linux operating system.
+
+## Why the Docker CLI Talks to an API
+
+Another thing that confused me for years: why is Docker split into a client and a daemon? Why does `docker` talk to an API instead of just... running the container? The answer becomes obvious once you see the architecture as a stack of delegations.
+
+When you type `docker run nginx`, the `docker` CLI does not create any container. It is a thin REST client that sends an HTTP request to the [Docker Engine API](https://docs.docker.com/reference/api/engine/), usually over the Unix socket at `/var/run/docker.sock`. The listener on the other side is `dockerd`, the Docker daemon, which manages images, networks and volumes. But `dockerd` doesn't create the container either—it delegates to `containerd`, a lower-level runtime that manages container lifecycles. And `containerd` delegates one more time, to `runc`, a small binary whose whole purpose is to do exactly what we did by hand earlier: create the namespaces, configure the cgroups, pivot into the root filesystem, and execute the process. Once the container is running, `runc` even exits—the container is just a process on your system, supervised by containerd.
+
+<Callout icon="💡" type="informative">
+This is why anything that can speak HTTP can drive Docker. When your CI pipeline, your IDE, or Portainer manages containers, they are just calling the same API your CLI calls. It is also why mounting `/var/run/docker.sock` into a container is equivalent to giving it root on the host—whoever holds the socket holds the engine.
+</Callout>
+
+This layered design is not accidental bureaucracy—it is what makes the ecosystem composable. The CLI can be replaced (Podman implemented a compatible one), the daemon can run on a remote machine while your CLI runs locally (`docker context` makes this trivial), and the low-level runtime is standardized by the [Open Container Initiative](https://opencontainers.org/) (OCI), which defines both what an image looks like and how a runtime must execute it. Kubernetes famously dropped Docker as its runtime and talks to `containerd` directly—and nobody's images broke, because images and runtimes follow the OCI specs, not Docker's whims.
+
+## Docker Is Not the Only Game in Town
+
+Because a "container" is just kernel features plus OCI standards, Docker is one implementation among several—an important one historically, but not a monopoly. Depending on your needs, another tool might serve you better.
+
+[Podman](https://podman.io/) is the most direct alternative: it is daemonless (no long-running root process—each container is a child of your own session) and rootless by default, which is a real security win. Its CLI is intentionally compatible with Docker's, to the point that `alias docker=podman` genuinely works for most workflows. [LXC/LXD](https://linuxcontainers.org/) takes a different philosophy: instead of packaging a single application, it runs *system containers* that boot a full distribution with an init system—closer to a lightweight VM that shares your kernel. [containerd](https://containerd.io/), which you already met inside Docker's stack, can be used directly with the `nerdctl` CLI—that is essentially Docker without the Docker branding. And systemd users already have `systemd-nspawn` sitting on their machines, a perfectly capable container launcher that almost nobody remembers exists.
+
+The beautiful part is that thanks to the OCI image specification, these tools interoperate. An image you build with Docker runs on Podman, gets deployed on a Kubernetes cluster running containerd, and can be inspected by any OCI-aware tool. You are not locked into a vendor—you are using a standard.
+
+## Conclusion
+
+Remember that interview question that embarrassed me—"what actually *is* a container?" Here is the answer I wish I had given: a container is a normal Linux process that has been wrapped in namespaces so it sees a private world, placed in a cgroup so it can't exhaust the machine, and pointed at its own root filesystem so it carries its dependencies with it. It is `chroot`—a tool from 1979—with several decades of steroids on top.
+
+Docker's genius was never inventing isolation; the kernel already had it. Docker's genius was the packaging: images, layers, registries, and a clean API that made these kernel features usable by everyone. Once you see that, the whole ecosystem clicks into place—why Windows needs a VM, why the CLI talks to a daemon, why Podman can be a drop-in replacement, and why Kubernetes could drop Docker without breaking anything. The big scary monster is just a very well-organized pile of Linux features, and now you know how to build one yourself with your bare hands.
+
+### Further Reading
+
+- [namespaces(7) — Linux manual page](https://man7.org/linux/man-pages/man7/namespaces.7.html)
+- [cgroups(7) — Linux manual page](https://man7.org/linux/man-pages/man7/cgroups.7.html)
+- [Containers From Scratch — Liz Rice (talk)](https://www.youtube.com/watch?v=8fi7uSYlOdc)
+- [Docker overview — Docker documentation](https://docs.docker.com/get-started/docker-overview/)
+- [Open Container Initiative specifications](https://opencontainers.org/about/overview/)
