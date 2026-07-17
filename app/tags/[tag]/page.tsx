@@ -4,6 +4,7 @@ import { Tag } from "@/components/tag";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAllTags, getPostsByTagSlug, sortTagsByCount } from "@/lib/utils";
 import { slug } from "github-slugger";
+import { Metadata } from "next";
 
 interface TagPageProps {
   params: {
@@ -16,6 +17,15 @@ export const generateStaticParams = () => {
   const paths = Object.keys(tags).map((tag) => ({ tag: slug(tag) }));
   return paths;
 };
+
+export function generateMetadata({ params }: TagPageProps): Metadata {
+  const title = params.tag.split("-").join(" ");
+
+  return {
+    title: `${title} | Tags`,
+    description: `Posts tagged with ${title}`,
+  };
+}
 
 export default function TagPage({ params }: TagPageProps) {
   const { tag } = params;

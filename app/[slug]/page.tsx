@@ -12,11 +12,6 @@ import profilePicture from "@/public/static/profile.png";
 import "@/styles/mdx.css";
 import { Metadata } from "next";
 
-export const metadata: Metadata = {
-  title: "Post",
-  description: "Topic I've written about",
-};
-
 interface PostPageProps {
   params: {
     slug: string;
@@ -33,6 +28,21 @@ export async function generateStaticParams(): Promise<
   PostPageProps["params"][]
 > {
   return posts.map((post) => ({ slug: post.slug }));
+}
+
+export async function generateMetadata({
+  params,
+}: PostPageProps): Promise<Metadata> {
+  const post = await getPostFromParams(params);
+
+  if (!post || !post.published) {
+    return {};
+  }
+
+  return {
+    title: post.title,
+    description: post.description,
+  };
 }
 
 export default async function PostPage({ params }: PostPageProps) {
