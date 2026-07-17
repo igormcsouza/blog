@@ -90,6 +90,20 @@ Congratulations—you have just built a container by hand. A private filesystem,
 Don't use this handmade container for anything serious. Real container runtimes handle a lot of subtle security details—dropping capabilities, seccomp filters, using `pivot_root` instead of `chroot` to prevent escapes—that our little experiment ignores. The point here is understanding, not production readiness.
 </Callout>
 
+## OCI: The Standard That Keeps Everyone Honest
+
+There is one part of our hand-made container where we quietly cheated: the root filesystem. We just downloaded a ready-made tarball from Alpine and unpacked it. In the real world, you don't hand-download tarballs—you `docker pull` an image, and that exact same image runs on Docker, on Podman, on a Kubernetes cluster, on a laptop or in the cloud. Tools written by different companies, in different languages, all agree on what that image means and how to run it. That kind of agreement never happens by accident. It happens because of a standard.
+
+That standard is the [Open Container Initiative](https://opencontainers.org/) (OCI), created in 2015 under the Linux Foundation. The context matters: at the time, the container world was at real risk of splitting into competing, incompatible formats—Docker had its own image format, and CoreOS was pushing an alternative called `rkt` with its own. Nobody wanted a repeat of the browser wars for containers, so the big players sat down and standardized the essentials. Docker itself donated the two most important pieces: its image format and `runc`, the runtime we met earlier, which became the reference implementation.
+
+The OCI maintains three specifications, and at a high level they are refreshingly simple. The [Image Spec](https://github.com/opencontainers/image-spec) defines what an image actually is: a stack of filesystem layers—each one literally a tarball—plus some JSON metadata describing how to assemble them and how to run the result (environment variables, entrypoint, working directory). The [Runtime Spec](https://github.com/opencontainers/runtime-spec) defines the other half: given an unpacked root filesystem and a `config.json`, exactly how a runtime must set up the namespaces, cgroups, and root filesystem to bring the container to life—in other words, a formalization of precisely what we just did by hand with `unshare` and `chroot`. And the [Distribution Spec](https://github.com/opencontainers/distribution-spec) defines the HTTP API that registries use, so pushing and pulling works the same whether you talk to Docker Hub, GitHub Container Registry, or a registry you host yourself.
+
+<Callout icon="💡" type="informative">
+A Docker image is just tarballs and JSON. Don't take my word for it—run `docker save nginx -o nginx.tar` and untar the result. You'll find the layers and manifests sitting right there, no magic binary format anywhere.
+</Callout>
+
+This is the piece that turns a clever kernel trick into an ecosystem. Because the specs exist, you can build an image with one tool, store it in any registry, and run it with any compliant runtime. Every tool we're about to discuss—and the entire architecture of Docker itself—leans on this agreement.
+
 ## Why Docker Needs a Virtual Machine on Windows and macOS
 
 Here is where the "containers share the host kernel" idea stops being trivia and starts explaining real-world behavior. Everything we did above—namespaces, cgroups, chroot—are features of the **Linux kernel**. They are not POSIX standards, they are not available on Windows, and they are not available on macOS. A Linux container cannot run without a Linux kernel underneath it, period.
@@ -114,7 +128,7 @@ When you type `docker run nginx`, the `docker` CLI does not create any container
 This is why anything that can speak HTTP can drive Docker. When your CI pipeline, your IDE, or Portainer manages containers, they are just calling the same API your CLI calls. It is also why mounting `/var/run/docker.sock` into a container is equivalent to giving it root on the host—whoever holds the socket holds the engine.
 </Callout>
 
-This layered design is not accidental bureaucracy—it is what makes the ecosystem composable. The CLI can be replaced (Podman implemented a compatible one), the daemon can run on a remote machine while your CLI runs locally (`docker context` makes this trivial), and the low-level runtime is standardized by the [Open Container Initiative](https://opencontainers.org/) (OCI), which defines both what an image looks like and how a runtime must execute it. Kubernetes famously dropped Docker as its runtime and talks to `containerd` directly—and nobody's images broke, because images and runtimes follow the OCI specs, not Docker's whims.
+This layered design is not accidental bureaucracy—it is what makes the ecosystem composable. The CLI can be replaced (Podman implemented a compatible one), the daemon can run on a remote machine while your CLI runs locally (`docker context` makes this trivial), and the low-level runtime just follows the OCI Runtime Spec we met earlier, so it can be swapped for any compliant implementation. Kubernetes famously dropped Docker as its runtime and talks to `containerd` directly—and nobody's images broke, because images and runtimes follow the OCI specs, not Docker's whims.
 
 ## Docker Is Not the Only Game in Town
 
@@ -122,7 +136,7 @@ Because a "container" is just kernel features plus OCI standards, Docker is one 
 
 [Podman](https://podman.io/) is the most direct alternative: it is daemonless (no long-running root process—each container is a child of your own session) and rootless by default, which is a real security win. Its CLI is intentionally compatible with Docker's, to the point that `alias docker=podman` genuinely works for most workflows. [LXC/LXD](https://linuxcontainers.org/) takes a different philosophy: instead of packaging a single application, it runs *system containers* that boot a full distribution with an init system—closer to a lightweight VM that shares your kernel. [containerd](https://containerd.io/), which you already met inside Docker's stack, can be used directly with the `nerdctl` CLI—that is essentially Docker without the Docker branding. And systemd users already have `systemd-nspawn` sitting on their machines, a perfectly capable container launcher that almost nobody remembers exists.
 
-The beautiful part is that thanks to the OCI image specification, these tools interoperate. An image you build with Docker runs on Podman, gets deployed on a Kubernetes cluster running containerd, and can be inspected by any OCI-aware tool. You are not locked into a vendor—you are using a standard.
+The beautiful part is that thanks to the OCI specs we talked about, these tools interoperate. An image you build with Docker runs on Podman, gets deployed on a Kubernetes cluster running containerd, and can be inspected by any OCI-aware tool. You are not locked into a vendor—you are using a standard.
 
 ## Conclusion
 
