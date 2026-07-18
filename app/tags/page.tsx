@@ -3,9 +3,9 @@ import { Metadata } from "next";
 import { posts } from "#site/content";
 import { Tag } from "@/components/tag";
 
-const metadata: Metadata = {
+export const metadata: Metadata = {
   title: "Tags",
-  description: "Topic I've written about",
+  description: "Topics I've written about",
 };
 
 export default function TagsPage() {

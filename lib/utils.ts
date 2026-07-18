@@ -47,6 +47,11 @@ export function getPostsByTagSlug(posts: Array<Post>, tag: string) {
   })
 }
 
+export const siteConfig = {
+  name: "Igor Souza's Blog",
+  description: "Stunning things I've learned and want to share",
+}
+
 export const personalInfo = {
   "name": "Igor Souza",
   "fullName": "Igor Matheus Chagas de Souza",
