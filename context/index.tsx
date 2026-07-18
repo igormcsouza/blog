@@ -27,8 +27,6 @@ export default function ThemeContextProvider({ children }: { children: ReactNode
     localStorage.setItem("themePreference", choise)
   }, [])
 
-  if (!theme && process.env.NODE_ENV != "development") return null  // TODO: Find a way to fix this monstrosity!
-
   return (
     <ThemeContext.Provider value={{ theme, handleChangeTheme }}>
       {children}
