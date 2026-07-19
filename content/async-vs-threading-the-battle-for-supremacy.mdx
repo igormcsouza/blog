@@ -247,6 +247,10 @@ If you write <code>async def</code>, everything inside it must be awaitable, or 
 
 ## So, who wins? How to actually decide
 
+Here's the whole decision as a flow: three questions, four possible landings.
+
+<img src="/blog/static/async-vs-threading-the-battle-for-supremacy/decision-flow.svg" alt="Decision flowchart: is the task CPU-bound leads to multiprocessing, otherwise stuck with blocking-only libraries leads to threading, otherwise needing high concurrency leads to asyncio, otherwise plain sync is fine" />
+
 1. **Is the task CPU-bound?** Parsing huge files, running ML inference, crunching numbers in pure Python. Then neither threading nor asyncio helps: async gives you zero parallelism because it's one thread, and threading gives you zero parallelism because of the GIL. This is `multiprocessing` / `ProcessPoolExecutor` territory, or, inside a FastAPI app, offloading to a background worker queue like Celery or arq. Full detail on that path lives in [the GIL post](/blog/we-need-to-talk-about-gil).
 2. **I/O-bound, with async-native libraries available end to end?** Asyncio wins, especially at high fan-out: many simultaneous slow calls, websockets, thousands of open connections.
 3. **I/O-bound, but stuck with a blocking library** (a legacy SDK, an ORM with no async driver)? Threading wins here: a plain `def` endpoint in FastAPI, a `ThreadPoolExecutor`, or, if you're already inside async code and just need to call one blocking function, `await asyncio.to_thread(blocking_fn)` is the official escape hatch.
