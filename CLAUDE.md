@@ -46,6 +46,11 @@ verification steps) and request approval via `ExitPlanMode`.
 Once approved, implement with the full-capability model (Sonnet), not the
 cheaper exploration models.
 
+- **Pull the newest `main` before starting.** `git fetch origin main`, and
+  branch/worktree off `origin/main` HEAD — not a cached or already-checked-out
+  ref, which can be behind recently merged PRs (including squash-merges that
+  change commit hashes). Do this before writing any code, not just before
+  opening the PR.
 - Work in an isolated git worktree/branch, never directly on `main`.
 - Follow the plan file step by step; re-read it if the session is long.
 - **New features require E2E test coverage.** This repo has no unit test
@@ -60,12 +65,11 @@ cheaper exploration models.
 
 ## 4. Before opening a PR
 
-Verify the branch's base isn't stale — `git fetch origin <default-branch>` and
-compare against `origin/<default-branch>` HEAD. Branches/worktrees can be cut
-from a cached ref that's behind a since-merged PR (including squash-merges
-that change commit hashes); rebase/reset onto the current tip before
-finishing, or content that depends on recently-merged work (e.g. hard-coded
-post ordering in tests) will be wrong.
+Re-check the branch's base isn't stale, especially if implementation took a
+while — `git fetch origin <default-branch>` and compare against
+`origin/<default-branch>` HEAD; rebase/reset onto the current tip if it moved.
+Content that depends on recently-merged work (e.g. hard-coded post ordering in
+tests) will be wrong otherwise.
 
 ## 5. Commit and open the PR
 
