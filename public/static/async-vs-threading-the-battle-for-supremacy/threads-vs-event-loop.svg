@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" role="img" aria-label="Side by side comparison: threading shows three OS thread lanes taking turns holding the GIL while asyncio shows a single event loop handing off between parked tasks at await points">
+  <rect x="0" y="0" width="1000" height="460" rx="12" fill="#f8fafc"/>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <!-- divider -->
+  <line x1="500" y1="20" x2="500" y2="440" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="6,6"/>
+
+  <!-- LEFT: Threading -->
+  <text x="250" y="40" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Threading — preemptive</text>
+
+  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#0f172a">
+    <!-- lane labels -->
+    <text x="45" y="105">Thread 1</text>
+    <text x="45" y="185">Thread 2</text>
+    <text x="45" y="265">Thread 3</text>
+
+    <!-- lane 1: run / blocked / run -->
+    <rect x="120" y="85" width="70" height="30" fill="#16a34a"/>
+    <rect x="190" y="85" width="160" height="30" fill="#94a3b8"/>
+    <rect x="350" y="85" width="100" height="30" fill="#16a34a"/>
+
+    <!-- lane 2: blocked / run / blocked -->
+    <rect x="120" y="165" width="90" height="30" fill="#94a3b8"/>
+    <rect x="210" y="165" width="90" height="30" fill="#16a34a"/>
+    <rect x="300" y="165" width="150" height="30" fill="#94a3b8"/>
+
+    <!-- lane 3: run / blocked / run -->
+    <rect x="120" y="245" width="50" height="30" fill="#16a34a"/>
+    <rect x="170" y="245" width="210" height="30" fill="#94a3b8"/>
+    <rect x="380" y="245" width="70" height="30" fill="#16a34a"/>
+
+    <!-- lane borders -->
+    <rect x="120" y="85" width="330" height="30" fill="none" stroke="#334155" stroke-width="1.5"/>
+    <rect x="120" y="165" width="330" height="30" fill="none" stroke="#334155" stroke-width="1.5"/>
+    <rect x="120" y="245" width="330" height="30" fill="none" stroke="#334155" stroke-width="1.5"/>
+  </g>
+
+  <!-- GIL token hopping between the three "run" segments -->
+  <g font-family="ui-sans-serif, system-ui, sans-serif">
+    <path d="M155,85 C 200,60 220,140 255,165" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+    <path d="M255,195 C 260,220 320,225 335,245" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrow)"/>
+    <circle cx="155" cy="70" r="16" fill="#fbbf24" stroke="#334155" stroke-width="1.5"/>
+    <text x="155" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">GIL</text>
+  </g>
+
+  <text x="285" y="315" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#475569">Only one lane can run Python at a time — the rest wait their turn.</text>
+  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#334155">
+    <rect x="120" y="345" width="14" height="14" fill="#16a34a"/>
+    <text x="140" y="356">running</text>
+    <rect x="230" y="345" width="14" height="14" fill="#94a3b8"/>
+    <text x="250" y="356">blocked on I/O (GIL released)</text>
+  </g>
+
+  <!-- RIGHT: Asyncio -->
+  <text x="750" y="40" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Asyncio — cooperative</text>
+
+  <g>
+    <!-- event loop circle with circular arrow -->
+    <circle cx="750" cy="200" r="55" fill="none" stroke="#334155" stroke-width="2"/>
+    <path d="M 750 145 A 55 55 0 1 1 700 178" fill="none" stroke="#334155" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="750" y="205" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="600" fill="#0f172a">event</text>
+    <text x="750" y="222" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="600" fill="#0f172a">loop</text>
+
+    <!-- task A: running -->
+    <rect x="715" y="70" width="70" height="34" rx="6" fill="#16a34a" stroke="#334155" stroke-width="1.5"/>
+    <text x="750" y="92" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700" fill="#f8fafc">A</text>
+    <line x1="750" y1="104" x2="750" y2="145" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4"/>
+
+    <!-- task B: parked at await -->
+    <rect x="855" y="235" width="70" height="34" rx="6" fill="#94a3b8" stroke="#334155" stroke-width="1.5"/>
+    <text x="890" y="257" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700" fill="#f8fafc">B</text>
+    <line x1="855" y1="245" x2="795" y2="220" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4"/>
+    <text x="880" y="222" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#475569">await</text>
+
+    <!-- task C: parked at await -->
+    <rect x="645" y="235" width="70" height="34" rx="6" fill="#94a3b8" stroke="#334155" stroke-width="1.5"/>
+    <text x="680" y="257" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700" fill="#f8fafc">C</text>
+    <line x1="700" y1="245" x2="713" y2="222" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4"/>
+    <text x="640" y="222" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#475569">await</text>
+  </g>
+
+  <text x="750" y="315" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#475569">One task runs until it yields — everyone else waits their turn, in order.</text>
+  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#334155">
+    <rect x="620" y="345" width="14" height="14" fill="#16a34a"/>
+    <text x="640" y="356">running</text>
+    <rect x="730" y="345" width="14" height="14" fill="#94a3b8"/>
+    <text x="750" y="356">parked, waiting to resume</text>
+  </g>
+</svg>

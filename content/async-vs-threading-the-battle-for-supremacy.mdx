@@ -1,0 +1,273 @@
+---
+title: "Async vs. Threading: The Battle for Supremacy"
+description: FastAPI made everyone write async def, but do you know why? Let's settle the fight between Python's two concurrency models.
+author: Igor Souza
+date: 2026-07-19
+published: true
+tags: ["python", "asyncio", "threading", "concurrency", "fastapi"]
+---
+Lately it feels like every FastAPI service I open has `async def` sprinkled on every single endpoint, whether it's fetching a row from Postgres or just returning `{"status": "ok"}`. I've started asking people why, and the honest answer is almost always the same: "because it's faster, right?". That's not really an answer, it's a guess, and it's the same half-understanding that made people call Python "single-threaded" in my last post.
+
+So let's fix that. This post picks up exactly where [We need to talk about GIL!](/blog/we-need-to-talk-about-gil) left off, and puts Python's two concurrency models, `threading` and `asyncio`, in the ring together. By the end you'll know exactly when threads win, when async wins, and — just as important — when neither of them can help you at all.
+
+## Previously, on the GIL...
+
+Quick recap, three facts, no rehash:
+
+1. The Global Interpreter Lock means only one thread executes Python bytecode at a time.
+2. The GIL is **released whenever a thread blocks on I/O** — that loophole is the whole reason both threading and asyncio exist.
+3. CPU-bound work gets no help from either of them. That's `multiprocessing` territory, and I'm not repeating that post here.
+
+<Callout icon="💡" type="informative">
+If "GIL", "mutex" or "I/O-bound" don't ring a bell yet, go read [We need to talk about GIL!](/blog/we-need-to-talk-about-gil) first. This post assumes you already know what the GIL is and why it exists — here we only care about what you can build around it.
+</Callout>
+
+## The real enemy: waiting
+
+Before comparing tools, let's name the actual problem they're both trying to solve. Open any typical web request in a profiler and you'll notice something humbling: your CPU barely does anything. The vast majority of the wall-clock time is spent waiting — for the database to answer a query, for a downstream HTTP API to respond, for a disk read to finish. The process isn't computing, it's just parked.
+
+This is the split you need in your head from now on: **CPU-bound** work (parsing, hashing, image processing, machine learning inference) actually keeps a core busy the whole time. **I/O-bound** work spends almost all of its time blocked, waiting on something that isn't the CPU at all. Concurrency in a Python web service is, in the overwhelming majority of cases, about the second kind. It's not about doing more computation, it's about not standing still while you wait.
+
+<img src="/blog/static/async-vs-threading-the-battle-for-supremacy/request-timeline.svg" alt="Timeline of a single request: a short CPU burst, a long wait on network or database, and a final short CPU burst" />
+
+Here's the baseline nobody wants to admit they still write: fetch three URLs, one after another, and just... wait.
+
+```python {6,7,8} showLineNumbers
+import time
+import requests
+
+def fetch(url):
+    start = time.perf_counter()
+    response = requests.get(url)
+    elapsed = time.perf_counter() - start
+    print(f"{url} -> {response.status_code} in {elapsed:.2f}s")
+    return response
+
+urls = [
+    "https://httpbin.org/delay/1",
+    "https://httpbin.org/delay/1",
+    "https://httpbin.org/delay/1",
+]
+
+start = time.perf_counter()
+for url in urls:
+    fetch(url)
+print(f"Total: {time.perf_counter() - start:.2f}s")
+```
+
+Three requests, each taking about a second, run one after another. Total: roughly 3 seconds. Your CPU was free for 2.9 of those 3 seconds and did nothing with the time. This is exactly the gap threading and asyncio exist to close.
+
+## Contender #1: Threading
+
+Threads are managed by the operating system, and the OS is **preemptive**: it can pause a thread and hand the CPU to another one at basically any point, whether the thread likes it or not. In CPython, when a thread blocks on I/O, it releases the GIL, and the OS scheduler is free to run a different thread in the meantime. The killer feature here is that this works with code you already have. `requests`, `psycopg2`, any classic blocking library, just works, unmodified, inside a thread.
+
+```python {1,15} showLineNumbers
+from concurrent.futures import ThreadPoolExecutor
+import time
+import requests
+
+def fetch(url):
+    start = time.perf_counter()
+    response = requests.get(url)
+    elapsed = time.perf_counter() - start
+    print(f"{url} -> {response.status_code} in {elapsed:.2f}s")
+    return response
+
+urls = ["https://httpbin.org/delay/1"] * 3
+
+start = time.perf_counter()
+with ThreadPoolExecutor(max_workers=3) as executor:
+    list(executor.map(fetch, urls))
+print(f"Total: {time.perf_counter() - start:.2f}s")
+```
+
+Same `fetch` function, not a single line changed inside it. Total time now: roughly 1 second, the duration of the *slowest* request, because all three were in flight waiting at the same time.
+
+That convenience has a price. Every thread carries its own stack (megabytes, not bytes), and the OS has to context-switch between them, so threads don't scale to tens of thousands of concurrent tasks the way we'd like. And because the OS can interrupt a thread between literally any two bytecodes, any state shared across threads needs explicit protection.
+
+<Callout icon="⚡" type="warning">
+Preemption means you never control exactly when a switch happens. If two threads touch the same shared variable without a `Lock`, you get the exact race condition from the GIL post's counter example: two threads incrementing the same number 1,000,000 times each, and the final result isn't 2,000,000. Threads buy you free concurrency for I/O; they don't buy you free correctness for shared state.
+</Callout>
+
+## Contender #2: Asyncio
+
+Asyncio flips the whole model around. Instead of many OS threads, you get **one thread and one event loop**, and instead of the OS preempting tasks whenever it feels like it, tasks **volunteer** to pause, at every `await`. This is called cooperative scheduling.
+
+<Callout icon="💡" type="informative">
+The mental model that matters here: **preemptive** means the OS taps a task on the shoulder and says "your turn is over", at any point, without asking. **Cooperative** means a task runs uninterrupted until it explicitly says `await`, which really means "I'm about to wait on something anyway, someone else can go ahead." Nothing switches unless a task chooses to yield.
+</Callout>
+
+The event loop keeps a queue of tasks. When a task hits an `await` on something slow (a socket read, a timer), the loop parks it and picks up the next ready task. When the slow thing finishes, the parked task goes back in the queue. Because tasks are just lightweight objects, not OS threads, you can have tens of thousands of them alive at once for a fraction of the memory cost.
+
+```python {1,4,6,10,15} showLineNumbers
+import asyncio
+import httpx
+
+async def fetch(client, url):
+    start = asyncio.get_event_loop().time()
+    response = await client.get(url)
+    elapsed = asyncio.get_event_loop().time() - start
+    print(f"{url} -> {response.status_code} in {elapsed:.2f}s")
+    return response
+
+async def main():
+    urls = ["https://httpbin.org/delay/1"] * 3
+    async with httpx.AsyncClient() as client:
+        await asyncio.gather(*(fetch(client, url) for url in urls))
+
+asyncio.run(main())
+```
+
+Same result as the threaded version, roughly 1 second total, but this approach holds up just as well at 10,000 URLs, where spinning up 10,000 threads simply isn't realistic.
+
+The catch is that this only works if everything in the call chain is async-native. Async is viral: `requests` becomes `httpx`, `psycopg2` becomes `asyncpg`, and so on, all the way down. And there's a sharper trap waiting for the ones who don't switch libraries:
+
+```python {5} showLineNumbers
+import asyncio
+import time
+
+async def broken_task(name):
+    print(f"{name} starting")
+    time.sleep(1)  # should be: await asyncio.sleep(1)
+    print(f"{name} done")
+
+async def main():
+    await asyncio.gather(broken_task("A"), broken_task("B"))
+
+asyncio.run(main())
+```
+
+Swap `await asyncio.sleep(1)` for plain `time.sleep(1)` and the two tasks that should have finished in 1 second together now take 2, run one after another. `time.sleep` doesn't yield, so nothing else on the loop gets a turn until it returns.
+
+<Callout icon="⚡" type="danger">
+One `time.sleep`, one plain `requests.get`, one heavy pandas transformation inside a coroutine, and your entire event loop stops. Not just that task, every task sharing that loop. This is the single most common async bug in production, and we'll see it show up again, wearing a FastAPI costume, in the next section.
+</Callout>
+
+<img src="/blog/static/async-vs-threading-the-battle-for-supremacy/threads-vs-event-loop.svg" alt="Side by side: three thread lanes taking turns holding the GIL versus one event loop handing off between tasks parked at await points" />
+
+## Head to head
+
+Neither column below says "runs Python in parallel", because neither does, the GIL still guarantees that. This is purely about who manages the waiting better.
+
+<table>
+  <thead>
+  <tr>
+    <th>Aspect</th>
+    <th>Threading</th>
+    <th>Asyncio</th>
+  </tr>
+  </thead>
+  <tbody>
+  <tr>
+    <td>Scheduling</td>
+    <td>Preemptive (OS decides)</td>
+    <td>Cooperative (task yields at <code>await</code>)</td>
+  </tr>
+  <tr>
+    <td>Concurrency unit cost</td>
+    <td>OS thread, megabytes of stack each</td>
+    <td>Coroutine/task, kilobytes each</td>
+  </tr>
+  <tr>
+    <td>Realistic scale</td>
+    <td>Dozens to a few hundred</td>
+    <td>Tens of thousands</td>
+  </tr>
+  <tr>
+    <td>Works with blocking libraries</td>
+    <td>Yes, unchanged</td>
+    <td>No, needs async-native replacements</td>
+  </tr>
+  <tr>
+    <td>Race conditions</td>
+    <td>Likely without <code>Lock</code>s</td>
+    <td>Rare, switches only happen at <code>await</code></td>
+  </tr>
+  <tr>
+    <td>Effect of one slow/blocking call</td>
+    <td>Only that thread stalls</td>
+    <td>The entire loop stalls</td>
+  </tr>
+  <tr>
+    <td>CPU-bound parallelism</td>
+    <td>No (GIL)</td>
+    <td>No (GIL, and single-threaded anyway)</td>
+  </tr>
+  </tbody>
+</table>
+
+## FastAPI enters the room
+
+This is where the original question finally gets an answer. FastAPI, through Starlette and AnyIO underneath it, actually runs *both* models at once and picks per endpoint. An `async def` endpoint runs directly on the event loop. A plain `def` endpoint is automatically dispatched to an external threadpool, precisely so it can't block the loop. A synchronous endpoint isn't a mistake, it's threading, managed for you.
+
+```python {6,7,8,9,10,11,12,13} showLineNumbers
+from fastapi import FastAPI
+import httpx
+import requests
+
+app = FastAPI()
+
+@app.get("/sync")            # dispatched to the threadpool
+def call_service_sync():
+    r = requests.get("https://api.example.com/data")
+    return r.json()
+
+@app.get("/async")           # runs directly on the event loop
+async def call_service_async():
+    async with httpx.AsyncClient() as client:
+        r = await client.get("https://api.example.com/data")
+    return r.json()
+```
+
+Both endpoints are correct Python. Under low load you won't notice a difference. Under high concurrency you will: a parked coroutine costs almost nothing, so a worker running `/async` can hold thousands of in-flight requests. The `/sync` endpoint is bounded by the threadpool.
+
+<Callout icon="💡" type="informative">
+AnyIO's default threadpool caps out around 40 threads per worker process. That's your hard ceiling for concurrent `def` requests on a single worker; the 41st simply queues behind the others. The event loop's ceiling for `async def` is, in practice, however much memory you have. Check your AnyIO/Starlette version if this number matters to your capacity planning, it's a tunable, not a law of physics.
+</Callout>
+
+The reverse trap is worse than a slow sync endpoint. Write `async def` and then block inside it, and you don't just slow down that one request:
+
+```python {6} showLineNumbers
+from fastapi import FastAPI
+import time
+
+app = FastAPI()
+
+@app.get("/broken")
+async def call_service_broken():
+    time.sleep(5)  # blocks the entire event loop for 5 seconds
+    return {"status": "ok"}
+```
+
+While this coroutine sleeps, every other request assigned to that worker's event loop, including your health check, hangs right along with it.
+
+<Callout icon="⚡" type="danger">
+If you write <code>async def</code>, everything inside it must be awaitable, or fast enough that it doesn't matter. If you can't guarantee that, plain <code>def</code> is not a downgrade, it's the correct choice, and FastAPI will thread it for you automatically. This exact rule is the first thing [zhanymkanov's fastapi-best-practices](https://github.com/zhanymkanov/fastapi-best-practices) guide covers, for good reason.
+</Callout>
+
+## So, who wins? How to actually decide
+
+1. **Is the task CPU-bound?** Parsing huge files, running ML inference, crunching numbers in pure Python. Then neither threading nor asyncio helps: async gives you zero parallelism because it's one thread, and threading gives you zero parallelism because of the GIL. This is `multiprocessing` / `ProcessPoolExecutor` territory, or, inside a FastAPI app, offloading to a background worker queue like Celery or arq. Full detail on that path lives in [the GIL post](/blog/we-need-to-talk-about-gil).
+2. **I/O-bound, with async-native libraries available end to end?** Asyncio wins, especially at high fan-out: many simultaneous slow calls, websockets, thousands of open connections.
+3. **I/O-bound, but stuck with a blocking library** (a legacy SDK, an ORM with no async driver)? Threading wins here: a plain `def` endpoint in FastAPI, a `ThreadPoolExecutor`, or, if you're already inside async code and just need to call one blocking function, `await asyncio.to_thread(blocking_fn)` is the official escape hatch.
+4. **Modest concurrency and simple code?** Plain synchronous code is genuinely fine. Don't pay async's cognitive tax for a service handling ten requests a second.
+
+<Callout icon="⚡" type="warning">
+The one-line takeaway of this entire post: <code>async</code> does not make your code faster. It makes waiting cheaper. If your code isn't waiting on anything, async has nothing to offer you, and the GIL makes sure threading doesn't either.
+</Callout>
+
+## Conclusion
+
+There's no real "supremacy" here, the battle framing was always a bit of a trick. Threading and asyncio solve the exact same problem, idle time spent waiting, with opposite trade-offs: threads buy you compatibility with the code you already have at the cost of scale and the need for locks; asyncio buys you scale at the cost of rewriting your dependencies and a sharper failure mode when something blocks by accident. FastAPI's actual genius isn't "async is faster", it's letting you choose the right tool per endpoint instead of forcing one model on your whole application.
+
+Pick based on what your task is actually doing, not on what's fashionable to type. And keep an eye on free-threaded Python (PEP 703, now shipping as an experimental build) — it's already starting to shift these trade-offs again, which might just be the topic for post number three.
+
+### Further Reading
+- [FastAPI Best Practices — zhanymkanov](https://github.com/zhanymkanov/fastapi-best-practices)
+- [asyncio — Asynchronous I/O (Python docs)](https://docs.python.org/3/library/asyncio.html)
+- [threading — Thread-based parallelism (Python docs)](https://docs.python.org/3/library/threading.html)
+- [concurrent.futures — Launching parallel tasks (Python docs)](https://docs.python.org/3/library/concurrent.futures.html)
+- [FastAPI docs — Concurrency and async / await](https://fastapi.tiangolo.com/async/)
+- [We need to talk about GIL!](/blog/we-need-to-talk-about-gil)
+
+As always: profile first, then pick the tool, the fastest concurrency model is the one that actually matches what your code is waiting for.
