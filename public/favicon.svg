@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-italic"><line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 375 375" width="375" height="375">
+  <rect width="375" height="375" rx="17.25" fill="#000000" />
+  <path
+    transform="translate(84.108568, 302.248811)"
+    fill="#ffffff"
+    d="M 180.921875 -238.8125 L 180.921875 -197.46875 L 131.640625 -197.46875 L 131.640625 -41.53125 L 180.921875 -41.53125 L 180.921875 0 L 25.84375 0 L 25.84375 -41.53125 L 75.125 -41.53125 L 75.125 -197.46875 L 25.84375 -197.46875 L 25.84375 -238.8125 Z"
+  />
+</svg>

@@ -1,6 +1,6 @@
 import ChangeThemeButton from "@/components/change-theme-button";
+import Logo from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { ItalicIcon } from "lucide-react";
 import Link from "next/link";
 
 export default function Header(){
@@ -8,7 +8,7 @@ export default function Header(){
     <header className="py-6 lg:py-10">
       <div className="flex gap-4 flex-row justify-between md:gap-8">
         <Link className="hidden sm:inline-block" href="/">
-          <ItalicIcon size={36}/>
+          <Logo size={36}/>
         </Link>
         <nav className="my-auto text-xl">
           <ul className="flex flex-wrap sm:gap-16">
