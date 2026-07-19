@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 760" width="880" height="760" role="img" aria-label="Decision flow: is the task CPU-bound leads to multiprocessing, otherwise stuck with blocking-only libraries leads to threading, otherwise needing high concurrency leads to asyncio, otherwise plain sync is fine">
-  <rect x="0" y="0" width="880" height="760" rx="12" fill="#f8fafc"/>
-  <text x="440" y="36" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Which one should I actually use?</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 740" width="880" height="740" role="img" aria-label="Decision flow: is the task CPU-bound leads to multiprocessing, otherwise stuck with blocking-only libraries leads to threading, otherwise needing high concurrency leads to asyncio, otherwise plain sync is fine">
+  <rect x="0" y="0" width="880" height="740" rx="12" fill="#f8fafc"/>
+  <text x="440" y="28" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Which one should I actually use?</text>
 
   <defs>
     <marker id="dfArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -11,69 +11,69 @@
   <g font-family="ui-sans-serif, system-ui, sans-serif">
 
     <!-- Q1 -->
-    <polygon points="170,40 270,80 170,120 70,80" fill="#ffffff" stroke="#334155" stroke-width="2"/>
-    <text x="170" y="75" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Is the task</text>
-    <text x="170" y="91" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">CPU-bound?</text>
+    <polygon points="170,60 270,100 170,140 70,100" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+    <text x="170" y="95" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Is the task</text>
+    <text x="170" y="111" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">CPU-bound?</text>
 
     <!-- Q1 -> Outcome1 (yes) -->
-    <line x1="270" y1="80" x2="496" y2="80" stroke="#16a34a" stroke-width="2" marker-end="url(#dfArrow)"/>
-    <text x="383" y="72" text-anchor="middle" font-size="12" font-weight="700" fill="#16a34a">yes</text>
+    <line x1="270" y1="100" x2="496" y2="100" stroke="#16a34a" stroke-width="2" marker-end="url(#dfArrow)"/>
+    <text x="383" y="92" text-anchor="middle" font-size="12" font-weight="700" fill="#16a34a">yes</text>
 
     <!-- Q1 -> Q2 (no) -->
-    <line x1="170" y1="120" x2="170" y2="246" stroke="#64748b" stroke-width="2" marker-end="url(#dfArrow)"/>
-    <text x="188" y="188" font-size="12" font-weight="700" fill="#64748b">no</text>
+    <line x1="170" y1="140" x2="170" y2="266" stroke="#64748b" stroke-width="2" marker-end="url(#dfArrow)"/>
+    <text x="188" y="208" font-size="12" font-weight="700" fill="#64748b">no</text>
 
     <!-- Q2 -->
-    <polygon points="170,250 270,290 170,330 70,290" fill="#ffffff" stroke="#334155" stroke-width="2"/>
-    <text x="170" y="280" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">Stuck with blocking-only</text>
-    <text x="170" y="296" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">libraries (no async driver)?</text>
+    <polygon points="170,270 270,310 170,350 70,310" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+    <text x="170" y="300" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">Stuck with blocking-only</text>
+    <text x="170" y="316" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">libraries (no async driver)?</text>
 
     <!-- Q2 -> Outcome2 (yes) -->
-    <line x1="270" y1="290" x2="496" y2="290" stroke="#16a34a" stroke-width="2" marker-end="url(#dfArrow)"/>
-    <text x="383" y="282" text-anchor="middle" font-size="12" font-weight="700" fill="#16a34a">yes</text>
+    <line x1="270" y1="310" x2="496" y2="310" stroke="#16a34a" stroke-width="2" marker-end="url(#dfArrow)"/>
+    <text x="383" y="302" text-anchor="middle" font-size="12" font-weight="700" fill="#16a34a">yes</text>
 
     <!-- Q2 -> Q3 (no) -->
-    <line x1="170" y1="330" x2="170" y2="456" stroke="#64748b" stroke-width="2" marker-end="url(#dfArrow)"/>
-    <text x="188" y="398" font-size="12" font-weight="700" fill="#64748b">no</text>
+    <line x1="170" y1="350" x2="170" y2="476" stroke="#64748b" stroke-width="2" marker-end="url(#dfArrow)"/>
+    <text x="188" y="418" font-size="12" font-weight="700" fill="#64748b">no</text>
 
     <!-- Q3 -->
-    <polygon points="170,460 270,500 170,540 70,500" fill="#ffffff" stroke="#334155" stroke-width="2"/>
-    <text x="170" y="490" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">Need high concurrency</text>
-    <text x="170" y="506" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">(many I/O calls at once)?</text>
+    <polygon points="170,480 270,520 170,560 70,520" fill="#ffffff" stroke="#334155" stroke-width="2"/>
+    <text x="170" y="510" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">Need high concurrency</text>
+    <text x="170" y="526" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f172a">(many I/O calls at once)?</text>
 
     <!-- Q3 -> Outcome3 (yes) -->
-    <line x1="270" y1="500" x2="496" y2="500" stroke="#16a34a" stroke-width="2" marker-end="url(#dfArrow)"/>
-    <text x="383" y="492" text-anchor="middle" font-size="12" font-weight="700" fill="#16a34a">yes</text>
+    <line x1="270" y1="520" x2="496" y2="520" stroke="#16a34a" stroke-width="2" marker-end="url(#dfArrow)"/>
+    <text x="383" y="512" text-anchor="middle" font-size="12" font-weight="700" fill="#16a34a">yes</text>
 
     <!-- Q3 -> Outcome4 (no) -->
-    <line x1="170" y1="540" x2="170" y2="596" stroke="#64748b" stroke-width="2" marker-end="url(#dfArrow)"/>
-    <text x="188" y="572" font-size="12" font-weight="700" fill="#64748b">no</text>
+    <line x1="170" y1="560" x2="170" y2="616" stroke="#64748b" stroke-width="2" marker-end="url(#dfArrow)"/>
+    <text x="188" y="592" font-size="12" font-weight="700" fill="#64748b">no</text>
 
     <!-- Outcome 1: multiprocessing (red, mirrors Callout danger) -->
-    <rect x="500" y="25" width="340" height="110" rx="8" fill="#fef2f2" stroke="#7f1d1d" stroke-width="2"/>
-    <text x="516" y="52" font-size="15" font-weight="700" fill="#7f1d1d">Neither helps</text>
-    <text x="516" y="74" font-size="12.5" fill="#334155">Use <tspan font-weight="600">multiprocessing</tspan> /</text>
-    <text x="516" y="92" font-size="12.5" fill="#334155"><tspan font-weight="600">ProcessPoolExecutor</tspan>, or offload to</text>
-    <text x="516" y="110" font-size="12.5" fill="#334155">a worker queue (Celery, arq).</text>
+    <rect x="500" y="45" width="340" height="110" rx="8" fill="#fef2f2" stroke="#7f1d1d" stroke-width="2"/>
+    <text x="516" y="72" font-size="15" font-weight="700" fill="#7f1d1d">Neither helps</text>
+    <text x="516" y="94" font-size="12.5" fill="#334155">Use <tspan font-weight="600">multiprocessing</tspan> /</text>
+    <text x="516" y="112" font-size="12.5" fill="#334155"><tspan font-weight="600">ProcessPoolExecutor</tspan>, or offload to</text>
+    <text x="516" y="130" font-size="12.5" fill="#334155">a worker queue (Celery, arq).</text>
 
     <!-- Outcome 2: threading (neutral slate) -->
-    <rect x="500" y="235" width="340" height="110" rx="8" fill="#f1f5f9" stroke="#334155" stroke-width="2"/>
-    <text x="516" y="262" font-size="15" font-weight="700" fill="#0f172a">Threading wins</text>
-    <text x="516" y="284" font-size="12.5" fill="#334155">Plain <tspan font-weight="600">def</tspan> endpoints,</text>
-    <text x="516" y="302" font-size="12.5" fill="#334155"><tspan font-weight="600">ThreadPoolExecutor</tspan>, or</text>
-    <text x="516" y="320" font-size="12.5" fill="#334155"><tspan font-weight="600">asyncio.to_thread()</tspan> from async code.</text>
+    <rect x="500" y="255" width="340" height="110" rx="8" fill="#f1f5f9" stroke="#334155" stroke-width="2"/>
+    <text x="516" y="282" font-size="15" font-weight="700" fill="#0f172a">Threading wins</text>
+    <text x="516" y="304" font-size="12.5" fill="#334155">Plain <tspan font-weight="600">def</tspan> endpoints,</text>
+    <text x="516" y="322" font-size="12.5" fill="#334155"><tspan font-weight="600">ThreadPoolExecutor</tspan>, or</text>
+    <text x="516" y="340" font-size="12.5" fill="#334155"><tspan font-weight="600">asyncio.to_thread()</tspan> from async code.</text>
 
     <!-- Outcome 3: asyncio (green, mirrors Callout informative) -->
-    <rect x="500" y="445" width="340" height="110" rx="8" fill="#f0fdf4" stroke="#14532d" stroke-width="2"/>
-    <text x="516" y="472" font-size="15" font-weight="700" fill="#14532d">Asyncio wins</text>
-    <text x="516" y="494" font-size="12.5" fill="#334155">Async-native libraries end to end,</text>
-    <text x="516" y="512" font-size="12.5" fill="#334155">tasks are cheap enough to scale to</text>
-    <text x="516" y="530" font-size="12.5" fill="#334155">thousands of open connections.</text>
+    <rect x="500" y="465" width="340" height="110" rx="8" fill="#f0fdf4" stroke="#14532d" stroke-width="2"/>
+    <text x="516" y="492" font-size="15" font-weight="700" fill="#14532d">Asyncio wins</text>
+    <text x="516" y="514" font-size="12.5" fill="#334155">Async-native libraries end to end,</text>
+    <text x="516" y="532" font-size="12.5" fill="#334155">tasks are cheap enough to scale to</text>
+    <text x="516" y="550" font-size="12.5" fill="#334155">thousands of open connections.</text>
 
     <!-- Outcome 4: plain sync (gray, terminal "no") -->
-    <rect x="20" y="600" width="300" height="100" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="2"/>
-    <text x="36" y="627" font-size="15" font-weight="700" fill="#334155">Plain sync is fine</text>
-    <text x="36" y="649" font-size="12.5" fill="#334155">Modest concurrency, simple code,</text>
-    <text x="36" y="667" font-size="12.5" fill="#334155">don't pay async's cognitive tax.</text>
+    <rect x="20" y="620" width="300" height="100" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="2"/>
+    <text x="36" y="647" font-size="15" font-weight="700" fill="#334155">Plain sync is fine</text>
+    <text x="36" y="669" font-size="12.5" fill="#334155">Modest concurrency, simple code,</text>
+    <text x="36" y="687" font-size="12.5" fill="#334155">don't pay async's cognitive tax.</text>
   </g>
 </svg>
