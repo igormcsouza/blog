@@ -4,8 +4,9 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import { Tag } from "@/components/tag";
 import ScrollProgress from "@/components/scroll-progress";
+import { PostNavigation } from "@/components/post-navigation";
 import { Calendar, Clock } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { formatDate, getAdjacentPosts } from "@/lib/utils";
 import readingDuration from 'reading-duration'
 import profilePicture from "@/public/static/profile.png";
 
@@ -52,7 +53,9 @@ export default async function PostPage({ params }: PostPageProps) {
     notFound();
   }
 
-  const readingTime = readingDuration(post.body, { 
+  const { previousPost, nextPost } = getAdjacentPosts(posts, post.slug);
+
+  const readingTime = readingDuration(post.body, {
     wordsPerMinute: 238, // Average silent reading rate for non-fiction
     emoji: false,
   })
@@ -88,6 +91,7 @@ export default async function PostPage({ params }: PostPageProps) {
       </div>
       <hr className="my-4" />
       <MdxComponent code={post.body} />
+      <PostNavigation previousPost={previousPost} nextPost={nextPost} />
     </article>
   );
 }

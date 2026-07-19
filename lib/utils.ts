@@ -24,6 +24,18 @@ export function sortPosts(posts: Array<Post>) {
   });
 }
 
+export function getAdjacentPosts(allPosts: Array<Post>, slug: string) {
+  const sorted = sortPosts(allPosts.filter((post) => post.published));
+  const index = sorted.findIndex((post) => post.slug === slug);
+
+  if (index === -1) return { previousPost: null, nextPost: null };
+
+  return {
+    nextPost: index > 0 ? sorted[index - 1] : null,
+    previousPost: index < sorted.length - 1 ? sorted[index + 1] : null,
+  };
+}
+
 export function getAllTags(posts: Array<Post>) {
   const tags: Record<string, number> = {}
   posts.forEach(post => {
