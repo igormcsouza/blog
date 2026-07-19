@@ -64,7 +64,7 @@ export default async function PostPage({ params }: PostPageProps) {
       {post.description ? (
         <p className="text-xl mt-0 text-muted-foreground text-center sm:text-left">{post.description}</p>
       ) : null}
-      <div className="flex gap-2 mb-2">
+      <div className="flex flex-wrap gap-2 mb-2">
         {post.tags?.map((tag) => (
           <Tag tag={tag} key={tag} />
         ))}
