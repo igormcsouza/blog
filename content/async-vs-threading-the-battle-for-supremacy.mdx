@@ -245,6 +245,22 @@ While this coroutine sleeps, every other request assigned to that worker's event
 If you write <code>async def</code>, everything inside it must be awaitable, or fast enough that it doesn't matter. If you can't guarantee that, plain <code>def</code> is not a downgrade, it's the correct choice, and FastAPI will thread it for you automatically. This exact rule is the first thing [zhanymkanov's fastapi-best-practices](https://github.com/zhanymkanov/fastapi-best-practices) guide covers, for good reason.
 </Callout>
 
+### Whose event loop is it, anyway?
+
+Here's a question I got asked more than once, and it's a fair one: FastAPI is a framework, so where does the actual event loop come from? FastAPI itself doesn't run one. It's an ASGI application, a callable that describes how to handle a request, nothing more. The event loop is supplied by whatever ASGI server boots it, almost always **Uvicorn**. When Uvicorn starts, it creates one asyncio event loop per worker **process**, and by default it swaps the standard library's loop for **uvloop**, a drop-in implementation built on `libuv` (the same library behind Node.js) that's noticeably faster at the same job.
+
+This has a consequence worth naming explicitly: `--workers` and `async def` solve two completely different problems.
+
+```bash
+uvicorn app:app --workers 4
+```
+
+Four workers means four separate OS processes, each with its own interpreter, its own GIL, and its own event loop. That's real, process-level parallelism, the same kind `multiprocessing` gives you, and it's what actually lets a FastAPI deployment use more than one CPU core. Inside each of those processes, the single event loop is what gives you high *concurrency*: one core juggling thousands of parked requests, exactly as described earlier in this post, just now with a name and a process boundary attached to it. Every incoming request on a worker becomes a task scheduled onto that worker's loop; the loop doesn't know or care about the other three workers running right next to it.
+
+<Callout icon="💡" type="informative">
+Workers buy you parallelism across cores. Async buys you concurrency within a core. Tuning only one of the two, adding `async def` everywhere while running a single worker, or adding workers while every endpoint blocks the loop, is a common way FastAPI deployments end up slower than expected under load.
+</Callout>
+
 ## So, who wins? How to actually decide
 
 Here's the whole decision as a flow: three questions, four possible landings.
