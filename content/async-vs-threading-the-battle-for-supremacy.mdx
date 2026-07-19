@@ -8,23 +8,23 @@ tags: ["python", "asyncio", "threading", "concurrency", "fastapi"]
 ---
 Lately it feels like every FastAPI service I open has `async def` sprinkled on every single endpoint, whether it's fetching a row from Postgres or just returning `{"status": "ok"}`. I've started asking people why, and the honest answer is almost always the same: "because it's faster, right?". That's not really an answer, it's a guess, and it's the same half-understanding that made people call Python "single-threaded" in my last post.
 
-So let's fix that. This post picks up exactly where [We need to talk about GIL!](/blog/we-need-to-talk-about-gil) left off, and puts Python's two concurrency models, `threading` and `asyncio`, in the ring together. By the end you'll know exactly when threads win, when async wins, and — just as important — when neither of them can help you at all.
+So let's fix that. This post picks up exactly where [We need to talk about GIL!](/blog/we-need-to-talk-about-gil) left off, and puts Python's two concurrency models, `threading` and `asyncio`, in the ring together. By the end you'll know exactly when threads win, when async wins, and, just as important, when neither of them can help you at all.
 
 ## Previously, on the GIL...
 
 Quick recap, three facts, no rehash:
 
 1. The Global Interpreter Lock means only one thread executes Python bytecode at a time.
-2. The GIL is **released whenever a thread blocks on I/O** — that loophole is the whole reason both threading and asyncio exist.
+2. The GIL is **released whenever a thread blocks on I/O**, that loophole is the whole reason both threading and asyncio exist.
 3. CPU-bound work gets no help from either of them. That's `multiprocessing` territory, and I'm not repeating that post here.
 
 <Callout icon="💡" type="informative">
-If "GIL", "mutex" or "I/O-bound" don't ring a bell yet, go read [We need to talk about GIL!](/blog/we-need-to-talk-about-gil) first. This post assumes you already know what the GIL is and why it exists — here we only care about what you can build around it.
+If "GIL", "mutex" or "I/O-bound" don't ring a bell yet, go read [We need to talk about GIL!](/blog/we-need-to-talk-about-gil) first. This post assumes you already know what the GIL is and why it exists, here we only care about what you can build around it.
 </Callout>
 
 ## The real enemy: waiting
 
-Before comparing tools, let's name the actual problem they're both trying to solve. Open any typical web request in a profiler and you'll notice something humbling: your CPU barely does anything. The vast majority of the wall-clock time is spent waiting — for the database to answer a query, for a downstream HTTP API to respond, for a disk read to finish. The process isn't computing, it's just parked.
+Before comparing tools, let's name the actual problem they're both trying to solve. Open any typical web request in a profiler and you'll notice something humbling: your CPU barely does anything. The vast majority of the wall-clock time is spent waiting, for the database to answer a query, for a downstream HTTP API to respond, for a disk read to finish. The process isn't computing, it's just parked.
 
 This is the split you need in your head from now on: **CPU-bound** work (parsing, hashing, image processing, machine learning inference) actually keeps a core busy the whole time. **I/O-bound** work spends almost all of its time blocked, waiting on something that isn't the CPU at all. Concurrency in a Python web service is, in the overwhelming majority of cases, about the second kind. It's not about doing more computation, it's about not standing still while you wait.
 
@@ -260,14 +260,14 @@ The one-line takeaway of this entire post: <code>async</code> does not make your
 
 There's no real "supremacy" here, the battle framing was always a bit of a trick. Threading and asyncio solve the exact same problem, idle time spent waiting, with opposite trade-offs: threads buy you compatibility with the code you already have at the cost of scale and the need for locks; asyncio buys you scale at the cost of rewriting your dependencies and a sharper failure mode when something blocks by accident. FastAPI's actual genius isn't "async is faster", it's letting you choose the right tool per endpoint instead of forcing one model on your whole application.
 
-Pick based on what your task is actually doing, not on what's fashionable to type. And keep an eye on free-threaded Python (PEP 703, now shipping as an experimental build) — it's already starting to shift these trade-offs again, which might just be the topic for post number three.
+Pick based on what your task is actually doing, not on what's fashionable to type. And keep an eye on free-threaded Python (PEP 703, now shipping as an experimental build), it's already starting to shift these trade-offs again, which might just be the topic for post number three.
 
 ### Further Reading
-- [FastAPI Best Practices — zhanymkanov](https://github.com/zhanymkanov/fastapi-best-practices)
-- [asyncio — Asynchronous I/O (Python docs)](https://docs.python.org/3/library/asyncio.html)
-- [threading — Thread-based parallelism (Python docs)](https://docs.python.org/3/library/threading.html)
-- [concurrent.futures — Launching parallel tasks (Python docs)](https://docs.python.org/3/library/concurrent.futures.html)
-- [FastAPI docs — Concurrency and async / await](https://fastapi.tiangolo.com/async/)
+- [FastAPI Best Practices, zhanymkanov](https://github.com/zhanymkanov/fastapi-best-practices)
+- [asyncio, Asynchronous I/O (Python docs)](https://docs.python.org/3/library/asyncio.html)
+- [threading, Thread-based parallelism (Python docs)](https://docs.python.org/3/library/threading.html)
+- [concurrent.futures, Launching parallel tasks (Python docs)](https://docs.python.org/3/library/concurrent.futures.html)
+- [FastAPI docs, Concurrency and async / await](https://fastapi.tiangolo.com/async/)
 - [We need to talk about GIL!](/blog/we-need-to-talk-about-gil)
 
 As always: profile first, then pick the tool, the fastest concurrency model is the one that actually matches what your code is waiting for.

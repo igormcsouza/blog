@@ -11,7 +11,7 @@
   <line x1="500" y1="20" x2="500" y2="440" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="6,6"/>
 
   <!-- LEFT: Threading -->
-  <text x="250" y="40" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Threading — preemptive</text>
+  <text x="250" y="40" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Threading, preemptive</text>
 
   <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#0f172a">
     <!-- lane labels -->
@@ -48,7 +48,7 @@
     <text x="155" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#0f172a">GIL</text>
   </g>
 
-  <text x="285" y="315" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#475569">Only one lane can run Python at a time — the rest wait their turn.</text>
+  <text x="285" y="315" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#475569">Only one lane can run Python at a time, the rest wait their turn.</text>
   <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#334155">
     <rect x="120" y="345" width="14" height="14" fill="#16a34a"/>
     <text x="140" y="356">running</text>
@@ -57,7 +57,7 @@
   </g>
 
   <!-- RIGHT: Asyncio -->
-  <text x="750" y="40" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Asyncio — cooperative</text>
+  <text x="750" y="40" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="600" fill="#0f172a">Asyncio, cooperative</text>
 
   <g>
     <!-- event loop circle with circular arrow -->
@@ -84,7 +84,7 @@
     <text x="640" y="222" font-family="ui-sans-serif, system-ui, sans-serif" font-size="11" fill="#475569">await</text>
   </g>
 
-  <text x="750" y="315" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#475569">One task runs until it yields — everyone else waits their turn, in order.</text>
+  <text x="750" y="315" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#475569">One task runs until it yields, everyone else waits their turn, in order.</text>
   <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#334155">
     <rect x="620" y="345" width="14" height="14" fill="#16a34a"/>
     <text x="640" y="356">running</text>

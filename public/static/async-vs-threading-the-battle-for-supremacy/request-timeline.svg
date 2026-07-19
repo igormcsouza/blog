@@ -15,6 +15,6 @@
     <text x="400" y="175" text-anchor="middle" font-size="14" fill="#0f172a">waiting on network / DB / disk</text>
     <text x="710" y="175" text-anchor="middle" font-size="14" fill="#0f172a">CPU</text>
 
-    <text x="400" y="205" text-anchor="middle" font-size="13" fill="#475569">Concurrency isn't about doing more work — it's about not standing still while you wait.</text>
+    <text x="400" y="205" text-anchor="middle" font-size="13" fill="#475569">Concurrency isn't about doing more work, it's about not standing still while you wait.</text>
   </g>
 </svg>
