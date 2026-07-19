@@ -145,6 +145,30 @@ One `time.sleep`, one plain `requests.get`, one heavy pandas transformation insi
 
 <img src="/blog/static/async-vs-threading-the-battle-for-supremacy/threads-vs-event-loop.svg" alt="Side by side: three thread lanes taking turns holding the GIL versus one event loop handing off between tasks parked at await points" />
 
+### What actually yields, at the bottom of the chain
+
+There's a question hiding in that last example: you can `await` all day inside your own `async def` functions, chaining calls ten levels deep, and none of that, by itself, hands control back to the event loop. `await` on a plain coroutine just resumes it and runs it to its own next `await`, in the same step, no different from a regular function call. The real handoff to the loop happens exactly once per suspension, and only when the chain bottoms out in something that isn't a coroutine at all: an `asyncio.Future`.
+
+A `Future` is `__await__`-able, and its implementation looks roughly like this:
+
+```python showLineNumbers
+def __await__(self):
+    if not self.done():
+        self._asyncio_future_blocking = True
+        yield self          # the one real suspension point
+    return self.result()
+```
+
+That `yield` is the only actual yield in the entire chain. Every `await` you write on a coroutine just walks down the call stack looking for it. When the `Task` running your coroutine hits that `yield`, it registers a callback with the loop, via `loop.add_reader` for a socket, `loop.call_later` for a timer, and returns control, letting the loop run something else until the Future resolves and the callback reschedules your `Task`.
+
+`asyncio.sleep()` and every async I/O call (`httpx`, `asyncpg`, raw sockets through `loop.sock_recv`) end in exactly this pattern: create a `Future`, hand it to the loop, `yield` it, get woken up later. That's why `time.sleep()` inside a coroutine never yields anything: it isn't a `Future`, it's not hooked into the loop, it's just the CPU spinning until the call returns, with no `yield` anywhere for the `Task` to catch.
+
+So writing a truly cooperative async function takes more than making the outermost call `async def`. Every layer, all the way down, has to eventually `await` something that resolves to one of these loop-registered `Future`s, not a computation that merely happens to live inside a coroutine.
+
+<Callout icon="💡" type="informative">
+Quick gut check: trace a coroutine's call chain to the very bottom. If it doesn't end in an <code>await</code> on I/O, a timer, or an explicit <code>await asyncio.sleep(0)</code>, it never actually yields, no matter how many <code>async def</code>s wrap it along the way.
+</Callout>
+
 ## Head to head
 
 Neither column below says "runs Python in parallel", because neither does, the GIL still guarantees that. This is purely about who manages the waiting better.
