@@ -1,6 +1,6 @@
 ---
 title: "Domain-Driven Design: Architecture That Grows with Your Business"
-description: Business rules that scatter across routers, schemas and models are a domain problem, not a FastAPI one. Here's how Domain-Driven Design fixes it, in two flavors, and how to choose between them.
+description: Business rules that scatter across routers, schemas and models are a domain problem, not a FastAPI one. Here's how Evans' own layered architecture fixes it, one bounded context at a time.
 author: Igor Souza
 date: 2026-08-09
 published: true
@@ -8,7 +8,7 @@ tags: ["python", "fastapi", "architecture", "ddd", "clean-architecture"]
 ---
 Every FastAPI project I've built starts the same way: a `posts` folder, a router, a couple of Pydantic schemas, a service function, a database model. It works cleanly for weeks. Then one day I need to change a single rule, say a post shouldn't be publishable without a body, and I can't find the one place that rule actually lives. It's half-written in a Pydantic validator, half-assumed by the router, and the database has its own opinion via a `NOT NULL` constraint. Three sources of truth for one sentence of business logic, and no way to change it without touching all three.
 
-That's not really a FastAPI problem. It's what happens to any growing application that never gave its business rules a home of their own. Domain-Driven Design, the term Eric Evans coined in *Domain-Driven Design: Tackling Complexity in the Heart of Software* (2003), is the name for fixing exactly that: organizing code around what the business does, a post, publishing, instead of around whatever technical layer happens to run first. The idea itself doesn't tell you which folder anything belongs in, so this post is about two well-known sources that turn it into an actual FastAPI project layout, and how to pick between them.
+That's not really a FastAPI problem. It's what happens to any growing application that never gave its business rules a home of their own. Domain-Driven Design, the term Eric Evans coined in *Domain-Driven Design: Tackling Complexity in the Heart of Software* (2003), is the name for fixing exactly that: organizing code around what the business does, a post, publishing, instead of around whatever technical layer happens to run first. Getting there in a FastAPI project turns out to need two pieces, one most teams already have and one Evans wrote down two decades ago, and this post is about combining them.
 
 ## fastapi-best-practices already gets you halfway
 
@@ -43,18 +43,16 @@ src
 
 That's a good instinct: code about "posts" lives together, instead of one `routers/` folder holding every endpoint in the app regardless of what it's for. It's the same move Flask's blueprints make, grouping by feature instead of by file type, and fastapi-best-practices leads with it as its very first recommendation. What it doesn't do is separate the business rule from the file that happens to run it. `service.py` ends up holding validation, orchestration, and the call down into the database all at once, so a rule like "a post needs a title and a body" still has no single home, it's just contained to one folder instead of scattered across the whole app.
 
-## Turning that into four layers
+## The layers, straight from Evans
 
-This is where the more classic DDD sources pick up: Robert C. Martin's *Clean Architecture* (2017), and Harry Percival and Bob Gregory's *Architecture Patterns with Python* (2020, free at [cosmicpython.com](https://www.cosmicpython.com/)), which builds a full Python example around the same ideas. Both describe the same four responsibilities, and each file already inside a fastapi-best-practices module maps onto one of them:
+The four-layer split isn't a later invention; it's in the original book. Evans devotes a chapter of *Domain-Driven Design* to what he calls Layered Architecture: User Interface, Application, Domain, and Infrastructure, with one explicit goal, keep the Domain layer isolated so it can express business rules without getting tangled up in the other three. `interface` in this post is Evans' User Interface (or Presentation) layer, just renamed for a web API where there's no actual UI, only routes and schemas. Martin's *Clean Architecture* (2017) and Percival and Gregory's *Architecture Patterns with Python* (2020, free at [cosmicpython.com](https://www.cosmicpython.com/)) didn't invent these four layers, they took Evans' isolation goal and made it mechanical: instead of just isolating the domain by convention, the domain defines interfaces and everything else depends on it, which is the dependency rule below. Each file already inside a fastapi-best-practices module maps onto one of Evans' four layers:
 
 | Inside `posts/` today | Layer | Job | Must **not** contain |
 |---|---|---|---|
-| `router.py` + `schemas.py` | **Interface** | Translate HTTP requests into calls the app understands, and results back into HTTP responses | Business rules, validation beyond "is this JSON shaped right" |
+| `router.py` + `schemas.py` | **Interface** (Evans: User Interface) | Translate HTTP requests into calls the app understands, and results back into HTTP responses | Business rules, validation beyond "is this JSON shaped right" |
 | `service.py` | **Application** | Orchestrate a use case: fetch what's needed, ask the domain to do the work, save the result | Business rules, direct SQL/ORM calls |
 | `models.py` | **Infrastructure** | Concrete I/O: talk to Postgres, Redis, an external API | Business rules, decisions about *whether* something should happen |
 | *(nothing today)* | **Domain** | Entities, value objects, and the business rules that decide what's valid and what happens next | Any import of FastAPI, SQLAlchemy, or anything else framework-specific |
-
-The one genuinely new file is `domain.py`, and it's the one that matters most: it's where "a post needs a title and a body" actually belongs, in one place, named after the business concept it protects, instead of split across a validator, a service method, and a database constraint. This split happens **inside each module**, `auth/domain.py` sitting next to `posts/domain.py`, which keeps the change scoped to one feature at a time and echoes Evans' own idea of a bounded context: each feature gets to define its rules independently of the others.
 
 ## The rule that actually matters: dependencies point inward
 
@@ -67,59 +65,52 @@ The domain layer must not depend on anything outside it. No FastAPI imports, no 
                               infrastructure ───implements───────┘
 ```
 
-This is Martin's dependency rule, stripped to one sentence: **frameworks and databases are details, and details should depend on policy, not the other way around.** The domain layer is the policy; FastAPI and Postgres are details, replaceable ones, if the arrows point the right way. The diagram repeats once per module, `auth/router.py → auth/service.py → auth/domain.py`, `posts/router.py → posts/service.py → posts/domain.py`, each feature enforcing its own boundary independently.
+This is the sentence worth remembering: **frameworks and databases are details, and details should depend on policy, not the other way around.** The domain layer is the policy; FastAPI and Postgres are details, replaceable ones, if the arrows point the right way. The diagram repeats once per bounded context, `auth/router.py → auth/service.py → auth/domain.py`, `posts/router.py → posts/service.py → posts/domain.py`, each context enforcing its own boundary independently.
 
 The payoff isn't aesthetic. If a `PublishPost` use case depends on a `PostRepository` interface the domain defines, rather than on a concrete `SqlPostRepository`, you can hand it an in-memory fake in a test and exercise every business rule without a database, a running FastAPI app, or a mock library in sight. That's the actual reason to do any of this: not tidier folders, but business logic you can test and change without dragging the rest of the stack along.
 
-## Two ways to arrange the layers
+## One bounded context, four layers
 
-Knowing the four layers still leaves one open question: where do the folder boundaries actually go? The two sources above answer it differently, and both answers are legitimate.
-
-**Feature-first, following fastapi-best-practices.** Keep `auth/`, `posts/`, `aws/` exactly as they ship, and add one new file per module:
+Evans' other core idea, alongside the layers, is the bounded context: a boundary around one part of the business, `posts`, `auth`, inside which a term like "post" means exactly one thing and the rules about it live together. fastapi-best-practices already drew that boundary for you, `posts/`, `auth/`, `aws/` are bounded contexts in everything but name. So the layers belong *inside* each one, not spread across the whole app as four folders that cut through every context at once:
 
 ```text
 posts
-├── router.py       # interface
-├── schemas.py      # interface
-├── domain.py       # domain (new)
-├── service.py      # application (thinned down)
-└── models.py       # infrastructure
+├── router.py          # interface
+├── schemas.py         # interface
+├── domain.py           # domain (new)
+├── application.py      # application (was service.py)
+└── infrastructure.py   # infrastructure (was models.py)
 ```
 
-This is the smallest possible diff from what you already have; everything about "posts" still lives in one folder. It's what the worked example below uses.
-
-**Layer-first, following Clean Architecture / Percival and Gregory more literally.** Flip the axis: layers become the top-level folders, each one holding one file per feature, close to how *Architecture Patterns with Python*'s own example app is laid out (`domain/`, `service_layer/`, `adapters/`):
+That's the whole change for a context small enough to need one file per layer. It grows into subfolders the moment a layer needs more than one file, which happens as soon as a context covers more than a single entity or use case:
 
 ```text
-src
+posts
+├── router.py
+├── schemas.py
 ├── domain/
-│   ├── posts.py
-│   └── auth.py
+│   ├── post.py           # Post entity, PostRepository protocol
+│   └── comment.py        # Comment entity, same bounded context
 ├── application/
 │   ├── publish_post.py
-│   └── register_user.py
-├── infrastructure/
-│   ├── sql_post_repository.py
-│   └── sql_user_repository.py
-└── interface/
-    ├── posts_router.py
-    └── auth_router.py
+│   └── delete_comment.py
+└── infrastructure/
+    ├── sql_post_repository.py
+    └── sql_comment_repository.py
 ```
 
-Same four responsibilities, same dependency direction, organized as columns instead of nested inside each feature folder.
+What actually lives in each one:
 
-| | Feature-first | Layer-first |
-|---|---|---|
-| Diff from fastapi-best-practices | Minimal, add one file per module | Larger, restructure the whole tree |
-| Changing one feature | Touch one folder | Touch up to four folders |
-| Enforcing "domain imports nothing" | Code review, or a per-module lint rule | One `import-linter`/Deptrac rule for the whole codebase |
-| Best fit | Small-to-medium team, each feature has one entry point (its own REST routes) | Domain shared across several entry points (HTTP + CLI + worker), or a team that wants the boundary machine-checked, not just reviewed |
+- **`domain/`**: Entities like `Post` (an object with an identity and a lifecycle, `__post_init__` enforcing "needs a title and a body"), Value Objects for anything defined purely by its data (a `Slug`, a `PostStatus`), Domain Services for a rule that spans more than one entity, and the repository `Protocol`s the layer needs but never implements.
+- **`application/`**: one use case per user-facing operation, `PublishPost`, `DeleteComment`, each a small class or function that fetches what it needs, asks the domain to do the work, and saves the result. No business decisions here, only sequencing.
+- **`infrastructure/`**: concrete repository implementations (`SqlPostRepository`), ORM models, clients for anything external, S3, an email provider, a payment gateway.
+- **`router.py` + `schemas.py`**: FastAPI routes and Pydantic models, translating HTTP into a call on the application layer and the result back into a response. Evans' User Interface layer, under the name this post has been using for it.
 
-Neither is "more correct" DDD, Evans never mandated a folder layout, Martin's circles are a diagram, not a directory listing. Feature-first is the better starting point for evolving an existing fastapi-best-practices app, which covers most real migrations. Layer-first earns its cost once the domain layer has outgrown a single HTTP-shaped module, or once a team wants CI, not a reviewer, catching a stray `import sqlalchemy` inside `domain/`.
+Percival and Gregory's own example application in *Architecture Patterns with Python* puts these same four layers at the top level instead, `domain/`, `service_layer/`, `adapters/`, spanning the whole app. That reads naturally in their book because it only ever deals with one bounded context. The moment an app has more than one, `posts` and `auth` and `aws` all needing their own domain rules, nesting the layers inside each context keeps them separate the way Evans intended, instead of merging every context's entities into one shared `domain/` folder.
 
 ## Worked example: publishing a post
 
-Same use case, both layouts, so the difference is concrete instead of abstract. This uses the feature-first arrangement, since it's the smaller step from what you already have.
+Same use case, both layouts, so the difference is concrete instead of abstract. This uses the single-file version of the layers, since `posts` is small enough that it doesn't need the subfolders yet.
 
 **Default layout.** The validation rule about what makes a post valid lives inside `PostService`, which is nominally "just orchestration":
 
@@ -226,14 +217,14 @@ def test_publish_post_marks_it_published():
     assert post.published is True
 ```
 
-No database, no FastAPI `TestClient`, no mocking framework, just the business rule, isolated and fast to run. That's the concrete version of "ports and adapters" Percival and Gregory build their entire book around: the domain defines the port (`PostRepository`), infrastructure supplies the adapter (`SqlPostRepository`), and swapping the adapter never touches the port or the business logic behind it. Had this used the layer-first arrangement instead, the classes wouldn't change at all, only their addresses would: `posts/domain.py` becomes `domain/posts.py`, `posts/application.py` becomes `application/publish_post.py`, and so on. The behavior, and the test, are identical either way, the folder axis is a navigation choice, the dependency direction is the architecture.
+No database, no FastAPI `TestClient`, no mocking framework, just the business rule, isolated and fast to run. That's the concrete version of "ports and adapters" Percival and Gregory build their entire book around: the domain defines the port (`PostRepository`), infrastructure supplies the adapter (`SqlPostRepository`), and swapping the adapter never touches the port or the business logic behind it. If `posts` later grows a second entity, `posts/domain.py` becomes a `posts/domain/` folder with `post.py` and `comment.py` inside it, same classes, same test, just one file split into two once there's a reason to.
 
 ## Where this goes wrong
 
 Four layers instead of two is more files, more indirection, and more places to look up a definition, and that cost is only worth paying once the domain has enough real rules to protect. Percival and Gregory are explicit about this: start simple, and grow into ports, entities, and a real domain layer only once complexity actually demands it.
 
 <Callout icon="⚡" type="danger">
-If `posts/service.py` is entirely `def get(self, id): return self.repo.get(id)`, that's not a missing domain layer, that's a CRUD app, and a CRUD app doesn't need one, feature-first or layer-first. Adding a `domain.py` to a module with no real business rules just adds ceremony around code that was never going to change independently anyway.
+If `posts/service.py` is entirely `def get(self, id): return self.repo.get(id)`, that's not a missing domain layer, that's a CRUD app, and a CRUD app doesn't need one. Adding a `domain.py` to a module with no real business rules just adds ceremony around code that was never going to change independently anyway.
 </Callout>
 
 The other common failure is doing the rename without doing the work: calling `service.py` `application.py` while it still reaches into SQLAlchemy directly, or still decides business rules inline. That relabels the junk drawer, it doesn't fix it, the names only earn their keep once the dependency rule actually holds.
@@ -242,20 +233,21 @@ The tell that you've earned this structure isn't the size of the codebase, it's 
 
 ## Bringing it into an existing app, one slice at a time
 
-You don't need a rewrite to get here, attempting one is how these migrations stall out. The feature-first version is built to be added incrementally: pick the single most tangled `service.py`, the one you dread changing, and work through it in order.
+You don't need a rewrite to get here, attempting one is how these migrations stall out. This is built to be added incrementally, one bounded context at a time: pick the single most tangled `service.py`, the one you dread changing, and work through it in order.
 
 1. **Extract the validation and business rules** out of `service.py` into a small dataclass or class in a new `domain.py` next to it, the way `Post.__post_init__` does above.
-2. **Define a `Protocol`** for whatever that module persists or fetches, owned by `domain.py`, describing only what the business logic actually needs.
+2. **Define a `Protocol`** for whatever that context persists or fetches, owned by `domain.py`, describing only what the business logic actually needs.
 3. **Point the existing `models.py` at that `Protocol`** implicitly, Python's structural typing means an existing class that already has a matching `save` method satisfies it with zero changes.
 4. **Thin `service.py` down** into an application-layer use case that only orchestrates: call the domain, call the repository, done. Renaming the file to `application.py` is optional, and can wait.
 5. **Leave `router.py` and `schemas.py` alone.** They're already exactly where the interface layer belongs.
-6. **Repeat per module**, not per file, and not all at once. A `posts/domain.py` next to an untouched `auth/service.py` is a valid, working intermediate state.
+6. **Repeat per bounded context**, not per file, and not all at once. A `posts/domain.py` next to an untouched `auth/service.py` is a valid, working intermediate state.
+7. **Split a single file into a subfolder only when it needs a second file.** `posts/domain.py` becomes `posts/domain/` the day `posts` grows a second entity, not before.
 
-Each step is small enough to review on its own, and the app runs correctly after every single one of them, which is the actual point: architecture is something you grow into, the same way the business itself grows. Moving to layer-first later, if the domain ever outgrows a single module, is a bigger, more deliberate jump worth planning as its own piece of work, rather than folding it into an unrelated feature change.
+Each step is small enough to review on its own, and the app runs correctly after every single one of them, which is the actual point: architecture is something you grow into, the same way the business itself grows.
 
 ## Conclusion
 
-`router.py`, `schemas.py`, `service.py`, and `models.py`, grouped by feature, were already most of the way to a domain-driven structure. What was missing was a name for the business rules that didn't fit anywhere, and a rule about which direction the imports are allowed to point. Get the direction right, domain depending on nothing, everything else depending on domain, and the rest, testability, a home for logic that doesn't belong to any one endpoint, the ability to swap Postgres for something else without touching a business rule, follows from that decision almost automatically. Whether you enforce it by nesting the layers inside each feature or by making them the top-level folders is a real choice, but a secondary one, made once the first one, giving the business rules a home at all, is settled.
+`router.py`, `schemas.py`, `service.py`, and `models.py`, grouped by bounded context, were already most of the way to the layered architecture Evans described. What was missing was a name for the business rules that didn't fit anywhere, `domain.py`, and a rule about which direction the imports are allowed to point. Get the direction right, domain depending on nothing, everything else depending on domain, and the rest, testability, a home for logic that doesn't belong to any one endpoint, the ability to swap Postgres for something else without touching a business rule, follows from that decision almost automatically. Nest it inside each context, the way this post does, and it grows one bounded context at a time instead of asking for a whole-app restructure up front.
 
 ### Further Reading
 - [Domain-Driven Design: Tackling Complexity in the Heart of Software, Eric Evans (2003)](https://www.domainlanguage.com/ddd/)
