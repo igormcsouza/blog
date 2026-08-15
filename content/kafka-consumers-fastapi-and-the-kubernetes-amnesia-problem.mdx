@@ -7,9 +7,9 @@ published: true
 tags: ["kafka", "fastapi", "kubernetes", "architecture"]
 ---
 
-I recently wired a Kafka consumer straight into a FastAPI service. A request would kick off some external, asynchronous operation; that operation would eventually publish a stream of Kafka messages back; and the plan was for a follow-up `GET` request to read the accumulated results. Locally, with one process running, it worked beautifully. The moment I deployed it to Kubernetes with more than one replica, results started vanishing — not randomly, but deterministically, for requests unlucky enough to land on the "wrong" pod.
+Imagine you've just wired a Kafka consumer straight into a FastAPI service. A request kicks off some external, asynchronous operation; that operation eventually publishes a stream of Kafka messages back; and the plan is for a follow-up `GET` request to read the accumulated results. Locally, with one process running, it works beautifully. Then you deploy it to Kubernetes with more than one replica, and results start vanishing — not randomly, but deterministically, for requests unlucky enough to land on the "wrong" pod.
 
-Nothing about that outcome was a bug. It was me not having a mental model for what a Kafka consumer actually is, how it's supposed to sit next to an async web server, and what "state" means once your one process becomes an arbitrary number of them. None of this is specific to my project — it's the general shape of the problem anyone building this kind of event-driven, request/response bridge on Kubernetes will run into. So here's the logic, stripped of my particular code.
+Nothing about that is a bug. It's just not having a mental model for what a Kafka consumer actually is, how it's supposed to sit next to an async web server, and what "state" means once your one process becomes an arbitrary number of them. None of this is specific to any one project — it's the general shape of the problem anyone building this kind of event-driven, request/response bridge on Kubernetes will run into. So here's the logic, stripped down to its essentials.
 
 ## Don't let your endpoint talk to Kafka
 
