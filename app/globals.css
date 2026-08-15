@@ -86,3 +86,75 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Print styles (issue #42): force an ink-safe light theme regardless of
+   the active dark/light theme. Site chrome (header, footer, scroll
+   progress, post navigation) is hidden with Tailwind's `print:hidden`
+   utility in the components themselves. */
+
+@page {
+  margin: 1.5cm;
+}
+
+@media print {
+  /* Force light-theme design tokens even when `.dark` is set on
+     html/body, so printing while in dark mode yields light output. */
+  :root,
+  .dark {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 10% 3.9%;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Ink-safe article body: black text, no dark backgrounds, no shadows.
+     !important is required to beat the inline style="color: ..." spans
+     emitted by rehype-pretty-code (shiki github-dark theme), the
+     bg-black utility on <pre>, and dark:prose-invert. */
+  article,
+  article * {
+    color: #000 !important;
+    background-color: transparent !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Inline links print as plain underlined black text, no URL dump. */
+  article a {
+    text-decoration: underline;
+  }
+
+  /* Sensible pagination behavior. */
+  h1, h2, h3, h4, h5, h6 {
+    break-after: avoid;
+  }
+  pre, blockquote, figure, img {
+    break-inside: avoid;
+  }
+  /* On screen long code lines scroll horizontally; on paper they must wrap. */
+  pre {
+    white-space: pre-wrap !important;
+    word-break: break-word;
+  }
+}

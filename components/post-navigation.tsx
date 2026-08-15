@@ -13,7 +13,7 @@ export function PostNavigation({ previousPost, nextPost }: PostNavigationProps) 
   return (
     <nav
       aria-label="Post navigation"
-      className="not-prose mt-8 flex justify-between gap-4 border-t pt-6"
+      className="not-prose mt-8 flex justify-between gap-4 border-t pt-6 print:hidden"
     >
       {previousPost ? (
         <Link
