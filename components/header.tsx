@@ -5,7 +5,7 @@ import Link from "next/link";
 
 export default function Header(){
   return (
-    <header className="py-6 lg:py-10">
+    <header className="py-6 lg:py-10 print:hidden">
       <div className="flex gap-4 flex-row justify-between md:gap-8">
         <Link className="hidden sm:inline-block" href="/">
           <Logo size={36}/>
