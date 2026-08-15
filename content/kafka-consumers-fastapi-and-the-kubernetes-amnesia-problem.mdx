@@ -1,0 +1,179 @@
+---
+title: "Kafka Consumers, FastAPI, and the Kubernetes Amnesia Problem"
+description: Why your HTTP endpoint shouldn't talk to Kafka directly, how a consumer fits inside FastAPI's event loop, and why Kubernetes pods don't remember what they just learned.
+author: Igor Souza
+date: 2026-08-15
+published: true
+tags: ["kafka", "fastapi", "kubernetes", "architecture"]
+---
+
+Imagine you've just wired a Kafka consumer straight into a FastAPI service. A request kicks off some external, asynchronous operation; that operation eventually publishes a stream of Kafka messages back; and the plan is for a follow-up `GET` request to read the accumulated results. Locally, with one process running, it works beautifully. Then you deploy it to Kubernetes with more than one replica, and results start vanishing — not randomly, but deterministically, for requests unlucky enough to land on the "wrong" pod.
+
+Nothing about that is a bug. It's just not having a mental model for what a Kafka consumer actually is, how it's supposed to sit next to an async web server, and what "state" means once your one process becomes an arbitrary number of them. None of this is specific to any one project — it's the general shape of the problem anyone building this kind of event-driven, request/response bridge on Kubernetes will run into. So here's the logic, stripped down to its essentials.
+
+## Don't let your endpoint talk to Kafka
+
+The instinct, coming from a request/response world, is to treat Kafka like a queryable store: an HTTP handler receives a request, and somewhere in there it reaches out and asks Kafka "what messages do we have for X?" That's the wrong shape. Kafka is a transport, not a database, and a topic isn't indexed the way your endpoint needs it to be.
+
+The mental model that actually works is a pipeline:
+
+```
+external service → Kafka → consumer → application state/storage → HTTP endpoint
+```
+
+A long-running consumer continuously turns the incoming stream of events into state — a dictionary, a cache, a database row — that your endpoint can query cheaply and synchronously. The endpoint never touches Kafka. It only ever reads whatever the consumer already wrote down.
+
+## A consumer is a process, not a per-message spawn
+
+The second wrong instinct is imagining a consumer as something you create fresh for every message, the way you might spin up a handler per HTTP request. A Kafka consumer is the opposite: one long-lived loop that keeps running for the lifetime of your service.
+
+```
+start consumer → subscribe to topic → wait for message → process message → wait for next message → ...
+```
+
+That loop just blocks (or, in an async world, awaits) until a message shows up, does something with it, and goes right back to waiting. There's no per-message setup cost, no reconnect — just one process patiently reading a stream.
+
+Scaling that consumption is a separate mechanism: **consumer groups**. Give several consumer instances the same `group.id`, and Kafka splits a topic's partitions across them so each partition is only read by one consumer in the group at a time.
+
+<Callout icon="💡" type="informative">
+Partitions are the hard ceiling on useful parallelism within a consumer group. If a topic has 4 partitions and you run 10 consumer instances in the same group, only 4 of them will ever be assigned a partition — the other 6 sit idle. Scaling consumers past partition count buys you nothing until you also grow the topic's partitions.
+</Callout>
+
+## Fitting a consumer into an async web server
+
+This is where things get specifically tricky for something like FastAPI. Your web server is built around an event loop that needs to stay free to handle incoming requests. A Kafka consumer loop, left unchecked, is an infinite loop. Put those together carelessly and you get a service that never finishes starting up.
+
+The distinction that matters is between these two:
+
+```python
+await consumer_forever()                    # blocks startup forever
+asyncio.create_task(consumer_forever())      # runs alongside everything else
+```
+
+`await`-ing an infinite consumer loop directly in your startup code means startup itself never completes — the event loop is stuck inside that call, and no HTTP request ever gets handled. Scheduling it as a background task instead hands control back to the event loop immediately. The consumer loop still runs, but every time it `await`s on the next message (I/O, by definition), the event loop is free to go serve HTTP requests in the meantime, then come back.
+
+FastAPI's `lifespan` context is the natural place to start and stop that task:
+
+```python showLineNumbers
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(consumer_forever())
+    yield
+    task.cancel()
+
+app = FastAPI(lifespan=lifespan)
+```
+
+Startup schedules the consumer and returns immediately; shutdown cancels it cleanly. The consumer and the HTTP layer end up as two independent coroutines cooperating on the same event loop, not competing for it.
+
+## Correlation IDs: connecting a request to messages that arrive later
+
+Once the consumer is running independently, you need a way to tie an incoming Kafka message back to whichever original request triggered it. That's what a correlation ID is for: a value generated when the request comes in, threaded through to the external system, and echoed back on every Kafka message that results from it.
+
+The natural shape for the resulting state is a map from correlation ID to the messages that belong to it, not a flat list:
+
+```
+correlation_id → [message1, message2, message3, ...]
+```
+
+A flat list forces you to scan and filter on every read. A dictionary keyed by correlation ID makes the lookup a lookup — the exact operation your `GET` endpoint needs to do, cheaply, every time.
+
+This also plays nicely with how Kafka wants to be consumed: if each message can be processed independently of the others (no message needs to know what came before it), the consumer loop stays simple, and if throughput ever becomes a bottleneck, you can lean on partitions and multiple consumer instances without introducing coordination between them.
+
+## The Kubernetes twist: state is pod-local
+
+Here's the concept that actually explains the vanishing results, and it's probably the single most important thing to internalize from all of this: **in-memory state belongs to one process, and one process runs on one pod.**
+
+```
+Pod A: { test123 → [results...] }
+Pod B: { }
+Pod C: { }
+```
+
+If the consumer inside Pod A builds up state for `test123`, that dictionary exists in Pod A's memory and nowhere else. It was never replicated, synced, or shared — Kubernetes gives you multiple independent processes, each with its own address space. When a follow-up `GET /tests/test123` gets load-balanced to Pod B instead, Pod B has genuinely never heard of `test123`. This isn't a race condition or a bug in your code; it's exactly what "horizontal scaling" means. One pod becoming five pods is precisely what turns "which pod owns my state?" from a non-question into the central design constraint.
+
+## Two ways out: sticky sessions vs. shared state
+
+There are two general ways to make this work again once you have more than one pod.
+
+**Sticky sessions** route all requests for a given session (or, here, a given correlation ID) consistently to the same pod, so `test123` always finds Pod A's memory. It's cheap to reach for and requires no new infrastructure. The tradeoff is real, though: if Pod A restarts, gets rescheduled, or is killed by an autoscaler, whatever state lived only in its memory is gone. For state that only needs to survive a short-lived operation — a test run that completes in under a minute, say — that may be a perfectly acceptable risk.
+
+**Shared external state** removes the dependency on any specific pod entirely:
+
+```
+Pod A ─┐
+Pod B ─┼→ Redis
+Pod C ─┘
+```
+
+Any pod can write to or read from Redis, so it no longer matters which pod happens to handle a given request. Redis in particular is a good fit for this kind of short-lived correlation state because of TTLs — you can let entries expire automatically once a test window has passed, instead of having to remember to clean them up yourself.
+
+<Card>
+**Do I need a database too, just because Kafka is involved?**
+
+Not necessarily. These three tools solve different problems, and it's worth keeping them separate in your head: Kafka is the event transport, Redis is a good fit for state that's shared across pods but short-lived, and a relational database like PostgreSQL is for data that needs to outlive the operation that created it. If your results only matter for the duration of a request/response cycle, reaching for Postgres by default just because "there's a database involved somewhere" is adding durability you don't need.
+</Card>
+
+## Why horizontal scaling is the actual root cause
+
+It's worth naming the underlying trigger explicitly, because it explains why this problem shows up in Kubernetes specifically. Scaling comes in two flavors:
+
+- **Vertical:** one pod gets more CPU/RAM.
+- **Horizontal:** one pod becomes many pods.
+
+Vertical scaling never creates this problem — there's still exactly one process, one memory space, one owner of the state. Horizontal scaling is what introduces multiple independent copies of "the application," and Kubernetes is specifically built to make horizontal scaling easy and automatic. The amnesia problem isn't a Kafka quirk or a FastAPI quirk; it's what happens the instant any stateful in-memory design meets more than one replica.
+
+## When to actually split the consumer into its own deployment
+
+It's tempting to assume a Kafka consumer "should" live in its own Kubernetes deployment because that's what production systems are typically pictured as doing. But one consumer running inside each API pod — HTTP server, consumer task, and state, all in the same process — is a perfectly reasonable starting architecture, especially when Kafka throughput and API traffic need roughly the same amount of scaling. Kubernetes just scales the whole pod, and both halves scale together for free.
+
+Splitting the consumer into a separate deployment earns its complexity when the two workloads' needs genuinely diverge — for example:
+
+- The API needs many more (or fewer) replicas than the consumer does.
+- Kafka processing becomes CPU- or memory-intensive in its own right.
+- You want the consumer to autoscale on Kafka lag specifically, independent of HTTP traffic.
+- The two need different resource limits or independent deploy cycles.
+- A crash in the consumer shouldn't be able to take an API pod down with it.
+- You want separate monitoring/alerting for consumption vs. request handling.
+
+Keep the consumer, the state, and the HTTP layer as conceptually separate pieces of code from the start — even while they run in the same process — and this later split becomes a deployment change, not a rewrite.
+
+## Design for at-least-once delivery
+
+One more piece of Kafka's design has to shape how you write the consumer's processing logic. Kafka doesn't delete a message once it's been read, the way a traditional queue often does. Messages stick around according to the topic's retention configuration, and each consumer group simply tracks its own position in the stream via an **offset** — a pointer saying "I've processed up through here."
+
+<Callout icon="⚠️" type="warning">
+Offset commits and consumer crashes don't always line up perfectly. A consumer can process a message, crash before committing that it did so, restart, and receive the same message again. This is normal, expected Kafka behavior known as **at-least-once delivery** — not a bug to work around, but a guarantee to design for.
+</Callout>
+
+The practical consequence is that your processing logic should be idempotent: receiving the same message twice shouldn't produce two copies of the same result. A sequence number or a message ID included in the payload gives you something concrete to deduplicate against — if you've already recorded `test123 / sequence=4`, seeing it again should be a no-op, not a second entry.
+
+## Putting the whole thing back together
+
+Zooming back out, the full lifecycle looks like this:
+
+```
+HTTP request → generate correlation_id → start external operation → return correlation_id
+```
+
+running independently of:
+
+```
+Kafka → consumer task → receive message → read correlation_id → update state
+```
+
+and finally:
+
+```
+HTTP GET /tests/{correlation_id} → read state → return accumulated results
+```
+
+At small scale, that state can just live in memory inside the same process as the consumer and the API. If you outgrow a single pod without sticky routing, move the state behind Redis. If the consumer's resource or scaling needs eventually diverge from the API's, move it into its own deployment. None of those are decisions you need to make on day one.
+
+The principle underneath all of it is the one thing worth keeping in your head permanently: keep Kafka consumption, the HTTP API, and state storage conceptually separate, even when you deploy them together. That separation is what makes each piece swappable later — in-memory state for Redis, an embedded consumer task for a standalone deployment — without touching the other two.
+
+### Further Reading
+
+- [Kafka Consumer Groups — Confluent documentation](https://docs.confluent.io/platform/current/clients/consumer.html)
+- [Lifespan Events — FastAPI documentation](https://fastapi.tiangolo.com/advanced/events/)
+- [Redis Keyspace TTL — Redis documentation](https://redis.io/docs/latest/commands/expire/)
