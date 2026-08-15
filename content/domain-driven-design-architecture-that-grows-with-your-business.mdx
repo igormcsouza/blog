@@ -142,7 +142,7 @@ Finally, `domain/` also owns the repository `Protocol`s, `PostRepository`, `Comm
 
 `router.py` and `schemas.py` are Evans' User Interface layer, under a name that fits an API with no actual UI. `schemas.py` defines the shape of requests and responses, and it's deliberately allowed to differ from the domain's own shape, a `PostCreate` schema has no `id` field, because the client isn't supposed to invent one, while the `Post` entity always has one once it exists. `router.py` wires an HTTP verb and path to a use case via FastAPI's `Depends`, converts the incoming schema into whatever primitive arguments that use case actually takes, and converts its return value back into a response schema. Nothing in this layer decides anything; it translates in both directions and gets out of the way.
 
-Percival and Gregory's own example application in *Architecture Patterns with Python* puts these same four layers at the top level instead, `domain/`, `service_layer/`, `adapters/`, spanning the whole app. That reads naturally in their book because it only ever deals with one bounded context. The moment an app has more than one, `posts` and `auth` and `aws` all needing their own domain rules, nesting the layers inside each context keeps them separate the way Evans intended, instead of merging every context's entities into one shared `domain/` folder.
+Percival and Gregory's own example application in *Architecture Patterns with Python* puts these same four layers at the top level instead, `domain/`, `service_layer/`, `adapters/`, `entrypoints/`, spanning the whole app. That reads naturally in their book because it only ever deals with one bounded context. The moment an app has more than one, `posts` and `auth` and `aws` all needing their own domain rules, nesting the layers inside each context keeps them separate the way Evans intended, instead of merging every context's entities into one shared `domain/` folder.
 
 ## Worked example: publishing a post
 
@@ -150,7 +150,7 @@ Same use case, both layouts, so the difference is concrete instead of abstract. 
 
 **Default layout.** The validation rule about what makes a post valid lives inside `PostService`, which is nominally "just orchestration":
 
-```python {5,6,7} showLineNumbers
+```python {6,7,8,9,10} showLineNumbers
 # posts/service.py
 class PostService:
     def __init__(self, repo: PostRepository):
@@ -169,7 +169,7 @@ Nothing here is wrong, exactly, but the rule "a post needs a title and a body un
 
 **DDD layout.** The same rule moves into the one place that owns it:
 
-```python {6,7,8,9} showLineNumbers
+```python {11,12,13,14,15} showLineNumbers
 # posts/domain.py
 from dataclasses import dataclass
 from typing import Protocol
@@ -283,7 +283,7 @@ Each step is small enough to review on its own, and the app runs correctly after
 
 ## Conclusion
 
-`router.py`, `schemas.py`, `service.py`, and `models.py`, grouped by bounded context, were already most of the way to the layered architecture Evans described in 2003, before Clean Architecture had a name and before cosmicpython existed to demonstrate it in Python. What was actually missing was two things, not one: a name for the business rules that didn't fit anywhere, `domain.py`, and a rule about which direction the imports are allowed to point, domain depending on nothing, everything else depending on domain. Neither shows up by accident. A `domain.py` file that still gets imported by `infrastructure.py`, or a `Post` entity that still imports `sqlalchemy`, has the right filename in the wrong place, and none of the payoff below follows from a filename alone.
+`router.py`, `schemas.py`, `service.py`, and `models.py`, grouped by bounded context, were already most of the way to the layered architecture Evans described in 2003, before Clean Architecture had a name and before cosmicpython existed to demonstrate it in Python. What was actually missing was two things, not one: a name for the business rules that didn't fit anywhere, `domain.py`, and a rule about which direction the imports are allowed to point, domain depending on nothing, everything else depending on domain. Neither shows up by accident. A `domain.py` file that still imports `infrastructure.py`, or a `Post` entity that still imports `sqlalchemy`, has the right filename in the wrong place, and none of the payoff below follows from a filename alone.
 
 Get both things right and the rest stops being separate work: testability, because a use case built against a `Protocol` accepts a fake repository in a test without a database in sight; a single home for logic that doesn't belong to any one endpoint, so a CLI command and an HTTP route can call the same `PublishPost` use case instead of reimplementing "what makes a post valid" twice; the ability to swap Postgres for something else, or add a second, differently-backed implementation of the same repository, without touching a business rule at all. None of that is a separate feature to build later, it's what the dependency rule buys automatically once it's actually enforced.
 
