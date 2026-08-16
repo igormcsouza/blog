@@ -29,6 +29,7 @@ combinations for free.
 | Custom 404 page | — | `e2e/navigation.spec.ts` |
 | Per-page HTML `<title>` | bb437cf (#9) | `e2e/seo-titles.spec.ts` |
 | No blank/flash-of-empty-body on first paint (dev flicker regression) | 9edd944 (#10) | `e2e/theme.spec.ts` |
+| Read-aloud audio player (listen icon, play/pause/speed, word highlight, follow-scroll, graceful no-audio fallback) | — | `e2e/audio-player.spec.ts` |
 
 ## Adding a feature
 

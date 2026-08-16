@@ -5,8 +5,10 @@ import Image from "next/image";
 import { Tag } from "@/components/tag";
 import ScrollProgress from "@/components/scroll-progress";
 import { PostNavigation } from "@/components/post-navigation";
+import { AudioPlayer } from "@/components/audio-player";
 import { Calendar, Clock } from "lucide-react";
 import { formatDate, getAdjacentPosts } from "@/lib/utils";
+import { NARRATION_ROOT_ID } from "@/lib/tts-text";
 import readingDuration from 'reading-duration'
 import profilePicture from "@/public/static/profile.png";
 
@@ -87,10 +89,13 @@ export default async function PostPage({ params }: PostPageProps) {
             <Clock className="h-4 w-4" />
             {readingTime}
           </p>
+          <AudioPlayer slug={post.slug} />
         </div>
       </div>
       <hr className="my-4" />
-      <MdxComponent code={post.body} />
+      <div id={NARRATION_ROOT_ID}>
+        <MdxComponent code={post.body} />
+      </div>
       <PostNavigation previousPost={previousPost} nextPost={nextPost} />
     </article>
   );
