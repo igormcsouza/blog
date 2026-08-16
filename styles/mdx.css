@@ -37,3 +37,7 @@
 .subheading-anchor {
   @apply no-underline hover:after:content-["#"] focus:after:content-["#"] after:ml-1.5 dark:after:text-zinc-800 after:text-zinc-300;
 }
+
+.tts-active-word {
+  @apply rounded-sm bg-amber-200/80 dark:bg-amber-500/30;
+}

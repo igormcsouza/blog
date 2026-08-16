@@ -25,6 +25,14 @@ export default defineConfig({
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    env: {
+      ...process.env,
+      // Stable, non-routable base URL for the audio-player e2e suite to
+      // intercept via page.route(). If you already have a dev/e2e server
+      // running locally without this var, kill it and rerun so the audio
+      // player picks it up (reuseExistingServer won't rebuild for you).
+      NEXT_PUBLIC_AUDIO_BASE_URL: "https://audio-fixtures.invalid/audio",
+    },
   },
   projects: [
     {
