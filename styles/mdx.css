@@ -39,5 +39,5 @@
 }
 
 .tts-active-word {
-  @apply rounded-sm bg-amber-200/80 dark:bg-amber-500/30;
+  @apply rounded-sm bg-green-700/25 dark:bg-green-500/30;
 }
