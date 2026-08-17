@@ -1,0 +1,9 @@
+services:
+  blog:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        NEXT_PUBLIC_AUDIO_BASE_URL: ${NEXT_PUBLIC_AUDIO_BASE_URL:-https://igormcsouza-blog-audio.s3.us-east-1.amazonaws.com/audio}
+    ports:
+      - "${BLOG_DOCKER_PORT:-45678}:80"
