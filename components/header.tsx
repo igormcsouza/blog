@@ -7,7 +7,7 @@ export default function Header(){
   return (
     <header className="py-6 lg:py-10 print:hidden">
       <div className="flex gap-4 flex-row justify-between md:gap-8">
-        <Link className="hidden sm:inline-block" href="/">
+        <Link className="hidden sm:inline-block" href="/" prefetch={false}>
           <Logo size={36}/>
         </Link>
         <nav className="my-auto text-xl">
