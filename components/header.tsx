@@ -13,7 +13,13 @@ export default function Header(){
         <nav className="my-auto text-xl">
           <ul className="flex flex-wrap sm:gap-16">
             <li>
-              <Link href="https://igormcsouza.github.io/">
+              {/* Same-origin but outside this app's basePath/build (a
+                  separate deployed Next app). Without prefetch={false},
+                  Next's viewport prefetch treats it as an internal route,
+                  fetches that app's RSC payload, then tries to load its
+                  chunks under this app's /blog/_next path — the root cause
+                  of #48. */}
+              <Link href="https://igormcsouza.github.io/" prefetch={false}>
                 <Button variant={"ghost"}>Home</Button>
               </Link>
             </li>

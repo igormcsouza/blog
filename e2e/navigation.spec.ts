@@ -21,6 +21,15 @@ test.describe("Header navigation", () => {
     await page.goto("");
     const homeLink = page.getByRole("navigation").getByRole("link", { name: "Home" });
     await expect(homeLink).toHaveAttribute("href", "https://igormcsouza.github.io/");
+    // This link is same-origin-but-outside-basePath in production
+    // (igormcsouza.github.io/ vs the /blog app), which is what made Next's
+    // viewport prefetch treat it as an internal route and mis-load its RSC
+    // payload/chunks (#48). `prefetch={false}` (components/header.tsx) is
+    // the fix, but that prop isn't reflected in rendered HTML, and the bug
+    // only triggers when this app's own origin matches igormcsouza.github.io
+    // exactly — never true against this suite's 127.0.0.1 webServer. So
+    // this test can only guard the href itself, not the prefetch fix; the
+    // fix was verified against the live deployed site instead.
   });
 
   test("logo links back to the blog home", async ({ page }) => {

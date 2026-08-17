@@ -11,7 +11,11 @@ export default function Footer() {
         <ul className="flex flex-col items-center gap-2 px-4">
           {["", "#about", "#projects", "#news"].map((section) => (
             <li key={section}>
-              <Link className="hover:underline underline-offset-4" href={`https://igormcsouza.github.io/${section}`}>
+              <Link
+                className="hover:underline underline-offset-4"
+                href={`https://igormcsouza.github.io/${section}`}
+                prefetch={false}
+              >
                 {section === "" ? "Home" : section.slice(1)[0].toUpperCase() + section.slice(2)}
               </Link>
             </li>

@@ -22,6 +22,12 @@ test.describe("Footer", () => {
       "href",
       "https://igormcsouza.github.io/#news"
     );
+    // These four are same-origin-but-outside-basePath, same as the header's
+    // Home link (#48) — prefetch={false} (components/footer.tsx) is the
+    // fix, but that prop isn't reflected in rendered HTML and the bug only
+    // triggers when this app's own origin matches igormcsouza.github.io
+    // exactly, which is never true against this suite's 127.0.0.1
+    // webServer. See the equivalent note in e2e/navigation.spec.ts.
 
     await expect(footer.getByRole("link", { name: "GitHub" })).toHaveAttribute(
       "href",
