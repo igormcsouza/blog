@@ -18,6 +18,7 @@ export interface TimingWord {
 const WRAPPED_FLAG = "ttsWrapped";
 const LOOKAHEAD = 3;
 const MAX_UNMATCHED_RATIO = 0.2;
+const MAX_MERGE = 6;
 
 /**
  * Wraps every narratable word under `root` in a `<span data-tts-word>` so
@@ -72,6 +73,15 @@ export function wrapWords(root: HTMLElement): {
  * tokenization quirks (splits/merges/dropped punctuation). Returns null if
  * too many TTS words go unmatched, signaling the caller to disable
  * highlighting rather than show unreliable sync.
+ *
+ * edge-tts's own word-boundary segmentation is inconsistent for unspaced
+ * punctuation-joined text (e.g. inline-code paths): "service.py" sometimes
+ * comes back as one boundary event, sometimes split into "service" + "." +
+ * "py". A single DOM token can't be pre-split to match both cases, so when
+ * a direct match fails, this also tries concatenating a short run of
+ * upcoming TTS words' raw text (spaces excluded — TTS words never include
+ * them) to see if it spells out the current unsplit DOM token; if so, all
+ * of those TTS words map to that one DOM span.
  */
 export function alignWords(
   domTokens: string[],
@@ -84,10 +94,12 @@ export function alignWords(
   let domIdx = 0;
   let unmatched = 0;
 
-  for (let ttsIdx = 0; ttsIdx < ttsNormalized.length; ttsIdx++) {
+  let ttsIdx = 0;
+  while (ttsIdx < ttsNormalized.length) {
     const target = ttsNormalized[ttsIdx];
     if (target === "") {
       map[ttsIdx] = domIdx > 0 ? domIdx - 1 : 0;
+      ttsIdx++;
       continue;
     }
 
@@ -103,14 +115,75 @@ export function alignWords(
       }
     }
 
-    if (found === -1) {
-      unmatched++;
-      map[ttsIdx] = domIdx > 0 ? domIdx - 1 : 0;
+    if (found !== -1) {
+      domIdx = found + 1;
+      map[ttsIdx] = found;
+      ttsIdx++;
       continue;
     }
 
-    domIdx = found + 1;
-    map[ttsIdx] = found;
+    let mergedEnd = -1;
+    let merged = "";
+    for (let k = 0; k < MAX_MERGE && ttsIdx + k < tts.length; k++) {
+      merged += tts[ttsIdx + k].t;
+      const normalizedMerged = normalizeForMatch(merged);
+      if (normalizedMerged === "") continue;
+      if (
+        domIdx < domNormalized.length &&
+        domNormalized[domIdx] === normalizedMerged
+      ) {
+        mergedEnd = ttsIdx + k;
+        break;
+      }
+    }
+
+    if (mergedEnd !== -1) {
+      for (let j = ttsIdx; j <= mergedEnd; j++) {
+        map[j] = domIdx;
+      }
+      domIdx += 1;
+      ttsIdx = mergedEnd + 1;
+      continue;
+    }
+
+    // The reverse can also happen: edge-tts occasionally folds several
+    // spoken words into one WordBoundary event (e.g. a numeral getting
+    // merged with the words after it into one "word" of text containing
+    // spaces). Try matching that single TTS target against a run of
+    // consecutive DOM tokens joined by spaces.
+    let domMergedEnd = -1;
+    let domMergedFirst = -1;
+    let domMerged = "";
+    for (let m = 0; m < MAX_MERGE && domIdx + m < domNormalized.length; m++) {
+      const piece = domNormalized[domIdx + m];
+      if (piece === "") continue;
+      domMerged += domMerged === "" ? piece : ` ${piece}`;
+      if (domMergedFirst === -1) domMergedFirst = domIdx + m;
+      if (domMerged === target) {
+        domMergedEnd = domIdx + m;
+        break;
+      }
+    }
+
+    if (domMergedEnd !== -1) {
+      map[ttsIdx] = domMergedFirst;
+      domIdx = domMergedEnd + 1;
+      ttsIdx++;
+      continue;
+    }
+
+    // A DOM token that normalizes to nothing (pure decorative punctuation,
+    // e.g. the "→" between inline-code paths) has no TTS word of its own —
+    // skip it without consuming a TTS word, instead of permanently
+    // stalling domIdx on a token nothing will ever match again.
+    if (domIdx < domNormalized.length && domNormalized[domIdx] === "") {
+      domIdx++;
+      continue;
+    }
+
+    unmatched++;
+    map[ttsIdx] = domIdx > 0 ? domIdx - 1 : 0;
+    ttsIdx++;
   }
 
   if (tts.length > 0 && unmatched / tts.length > MAX_UNMATCHED_RATIO) {
