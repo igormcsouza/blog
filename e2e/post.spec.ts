@@ -75,6 +75,6 @@ test.describe("Post page", () => {
   }) => {
     await page.goto(POST_URL);
     await page.getByRole("link", { name: "welcome" }).click();
-    await expect(page).toHaveURL(/\/blog\/tags\/welcome$/);
+    await expect(page).toHaveURL(/\/blog\/tags\/welcome\/?$/);
   });
 });

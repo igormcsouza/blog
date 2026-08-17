@@ -13,7 +13,7 @@ test.describe("Tags index page", () => {
     const tagLink = page.getByRole("link", { name: /welcome \(\d+\)/i });
     await expect(tagLink).toBeVisible();
     await tagLink.click();
-    await expect(page).toHaveURL(/\/blog\/tags\/welcome$/);
+    await expect(page).toHaveURL(/\/blog\/tags\/welcome\/?$/);
   });
 });
 

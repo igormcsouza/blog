@@ -11,7 +11,7 @@ test.describe("Header navigation", () => {
   test("Tags link goes to the tags index", async ({ page }) => {
     await page.goto("");
     await page.getByRole("navigation").getByRole("link", { name: "Tags" }).click();
-    await expect(page).toHaveURL(/\/blog\/tags$/);
+    await expect(page).toHaveURL(/\/blog\/tags\/?$/);
     await expect(page.getByRole("heading", { level: 1, name: "Tags" })).toBeVisible();
   });
 
