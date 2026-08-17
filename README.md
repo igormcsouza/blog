@@ -47,6 +47,41 @@ npm run start
 
 The production server will be started on `http://localhost:3000`.
 
+## Check word-highlighting on articles heavy in inline code
+
+The read-aloud player highlights the word currently being spoken by aligning
+the article's DOM text against the TTS engine's word-timing JSON
+(`lib/audio-sync.ts`). This alignment is resilient to most TTS quirks, but
+articles with a lot of unspaced inline code — file paths like
+`` `posts/router.py` ``, chained arrows like `` `a.py → b.py` `` — are still
+the likeliest place for a new edge case to slip through, since `edge-tts`'s
+own word-boundary segmentation for that kind of text is inconsistent (the
+same phrase can come back as one spoken "word" or several, run to run). If
+alignment falls too far out of sync, highlighting silently disables itself
+for that whole article (playback still works fine — only the highlight is
+lost).
+
+Before pushing an article that's dense with inline code/paths, it's worth
+checking word-highlighting actually works rather than assuming it does:
+
+1. Run the TTS pipeline locally against your branch (see
+   `scripts/extract-audio-text.ts` / `scripts/generate_audio.py
+   --local-out <dir>`) to get real timing JSON for the new/edited post —
+   don't rely on hand-written fixture data, since the whole failure mode
+   here only shows up with real `edge-tts` output.
+2. Serve the production build (`npm run build && npm run start`), point
+   `NEXT_PUBLIC_AUDIO_BASE_URL`/a local static server at the `--local-out`
+   directory, open the article, and play it.
+3. Watch whether the highlight moves continuously through the sentences
+   containing inline code — if it goes dark and stays dark, or the whole
+   article never highlights a single word, that's the 20%-unmatched safety
+   threshold in `alignWords` kicking in.
+
+If you hit this, it's a bug in `alignWords`'s matching strategies, not
+something to work around in the article's prose — flag it (or fix it the
+same way past cases were: teaching the matcher a new merge/split pattern),
+rather than rewording the article to dodge the TTS engine's quirk.
+
 ## How to publish the blog changes to github?
 
 There is an [action](./.github/workflows/nextjs.yml) that prepares the project and publish it to Github Pages, so no neet to do anything else, just make sure a production build is creatable.
