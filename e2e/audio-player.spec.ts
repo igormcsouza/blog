@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { routeAudio } from "./fixtures/tts";
+import {
+  AUDIO_FIXTURE_BASE,
+  fixtureDurationSeconds,
+  makeSilentWav,
+  makeTimingJson,
+  routeAudio,
+} from "./fixtures/tts";
 
 // Real S3 latency/CORS behavior, real edge-tts audio, and the generation
 // pipeline itself aren't e2e-testable here — they're covered by the
@@ -104,6 +110,61 @@ test.describe("Audio player", () => {
     await expect(dialog.getByRole("button", { name: "Pause" })).toBeVisible();
     await page.waitForTimeout(1000);
     await expect(page.locator("span.tts-active-word")).toHaveCount(0);
+  });
+
+  test("closing the player mid-probe doesn't stick it in an error state on reopen", async ({
+    page,
+  }) => {
+    // Regression for: aborting the in-flight HEAD probe on close (via the
+    // effect's own cleanup) was being reported as a genuine connection
+    // error, and a ref guard meant the player never probed again — so
+    // closing quickly, then reopening, got stuck showing "Couldn't
+    // connect to the audio service" forever, even though the audio was
+    // actually available.
+    let resolveProbe: () => void = () => {};
+    const probeGate = new Promise<void>((resolve) => {
+      resolveProbe = resolve;
+    });
+
+    await page.route(`${AUDIO_FIXTURE_BASE}/${SLUG}.mp3`, async (route) => {
+      await probeGate;
+      await route.fulfill({
+        status: 200,
+        contentType: "audio/wav",
+        body: makeSilentWav(fixtureDurationSeconds()),
+      });
+    });
+    await page.route(`${AUDIO_FIXTURE_BASE}/${SLUG}.json`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(makeTimingJson(SLUG)),
+      });
+    });
+
+    await page.goto(POST_URL);
+    const openButton = page.getByRole("button", {
+      name: /listen to this article/i,
+    });
+    const dialog = page.getByRole("dialog", { name: /audio player/i });
+
+    // Open while the probe is still pending, then close before it resolves.
+    await openButton.click();
+    await expect(dialog.getByText(/checking for audio/i)).toBeVisible();
+    await dialog.getByRole("button", { name: /close player/i }).click();
+    await expect(dialog).toBeHidden();
+
+    // Let the (now-aborted, from the player's perspective) first probe's
+    // response land — it must not leak into the next probe's state.
+    resolveProbe();
+
+    await openButton.click();
+    await expect(
+      dialog.getByText(/couldn't connect to the audio service/i)
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: "Play", exact: true })
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("article auto-scrolls to follow the highlighted word", async ({

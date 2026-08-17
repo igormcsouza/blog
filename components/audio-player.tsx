@@ -69,7 +69,15 @@ export function AudioPlayer({ slug }: AudioPlayerProps) {
   }, []);
 
   useEffect(() => {
-    if (!open || hasProbedRef.current) return;
+    // Closing the player (or the underlying component surviving a
+    // soft/back navigation) must allow a fresh probe next time it opens —
+    // otherwise a probe aborted by our own cleanup below gets permanently
+    // stuck in "error" with no way to retry.
+    if (!open) {
+      hasProbedRef.current = false;
+      return;
+    }
+    if (hasProbedRef.current) return;
     hasProbedRef.current = true;
 
     if (!base || !mp3Url) {
@@ -78,6 +86,7 @@ export function AudioPlayer({ slug }: AudioPlayerProps) {
     }
 
     setState("checking");
+    let cancelledByCleanup = false;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
 
@@ -86,6 +95,10 @@ export function AudioPlayer({ slug }: AudioPlayerProps) {
         setState(res.ok ? "ready" : "unavailable");
       })
       .catch(() => {
+        // Ignore aborts caused by our own cleanup (dialog closed, deps
+        // changed) — only a genuinely failed/timed-out request while the
+        // player is still open is a real "couldn't connect" error.
+        if (cancelledByCleanup) return;
         setState("error");
       })
       .finally(() => {
@@ -93,6 +106,7 @@ export function AudioPlayer({ slug }: AudioPlayerProps) {
       });
 
     return () => {
+      cancelledByCleanup = true;
       clearTimeout(timeout);
       controller.abort();
     };
