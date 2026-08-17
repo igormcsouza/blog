@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+.velite
+.audio-build
+scripts/.venv
+test-results
+playwright-report
+.git

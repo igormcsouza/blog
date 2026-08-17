@@ -82,6 +82,39 @@ something to work around in the article's prose — flag it (or fix it the
 same way past cases were: teaching the matcher a new merge/split pattern),
 rather than rewording the article to dodge the TTS engine's quirk.
 
+## Testing against a GitHub Pages-like local server
+
+`npm run build && npm run start` runs Next's own dev server, which behaves
+differently from the real deployment in one important way: GitHub Pages
+serves a **static export** (`out/`) with no live Next.js server behind it —
+no dynamic RSC endpoint, no image optimization endpoint. Bugs specific to
+that (broken client-side prefetch URLs, missing files, basePath edge cases)
+won't reproduce under `next start` at all.
+
+`docker-compose.yml` builds the actual static export (`STATIC_EXPORT=true
+next build`, same as `actions/configure-pages` does in CI) and serves it
+through nginx configured to mimic GitHub Pages' behavior as closely as
+possible: served at the `/blog/` basePath, extensionless URL resolution
+(`/blog/some-post` → `some-post.html` or `some-post/index.html`), and a
+custom 404 page.
+
+```bash
+docker compose up --build
+```
+
+Serves at `http://localhost:45678/blog/` (override the port with
+`BLOG_DOCKER_PORT`). `NEXT_PUBLIC_AUDIO_BASE_URL` defaults to the real
+production audio bucket so the read-aloud player works against real data;
+override it via the same-named env var to point at a local `--local-out`
+directory instead.
+
+**Caveat**: this replicates GitHub Pages' file/routing layout, not its CDN
+(Fastly) behavior — some bugs (particularly ones this repo has hit around
+client-side RSC prefetch cascades) have only reproduced on the *actual*
+deployed site, not in this local replica or in `next start`. Use it to
+catch routing/basePath/static-export bugs early, but confirm anything
+network/CDN-shaped against the real deployment before calling it fixed.
+
 ## How to publish the blog changes to github?
 
 There is an [action](./.github/workflows/nextjs.yml) that prepares the project and publish it to Github Pages, so no neet to do anything else, just make sure a production build is creatable.
