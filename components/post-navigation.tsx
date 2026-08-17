@@ -18,6 +18,7 @@ export function PostNavigation({ previousPost, nextPost }: PostNavigationProps) 
       {previousPost ? (
         <Link
           href={"/" + previousPost.slug}
+          prefetch={false}
           className="group flex max-w-[45%] flex-col gap-1 py-2"
         >
           <span className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -33,6 +34,7 @@ export function PostNavigation({ previousPost, nextPost }: PostNavigationProps) 
       {nextPost ? (
         <Link
           href={"/" + nextPost.slug}
+          prefetch={false}
           className="group ml-auto flex max-w-[45%] flex-col items-end gap-1 py-2 text-right"
         >
           <span className="flex items-center gap-1 text-sm text-muted-foreground">
