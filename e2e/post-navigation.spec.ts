@@ -49,7 +49,7 @@ test.describe("Post navigation", () => {
     const nav = page.getByRole("navigation", { name: "Post navigation" });
 
     await nav.getByRole("link", { name: /Welcome to the Blog!/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/blog/${OLDEST_POST}$`));
+    await expect(page).toHaveURL(new RegExp(`/blog/${OLDEST_POST}/?$`));
   });
 
   test("clicking the next link navigates to the newer post", async ({
@@ -59,6 +59,6 @@ test.describe("Post navigation", () => {
     const nav = page.getByRole("navigation", { name: "Post navigation" });
 
     await nav.getByRole("link", { name: /We need to talk about GIL!/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/blog/${MIDDLE_POST}$`));
+    await expect(page).toHaveURL(new RegExp(`/blog/${MIDDLE_POST}/?$`));
   });
 });
