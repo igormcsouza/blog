@@ -1,0 +1,47 @@
+name: Generate article audio (TTS)
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "content/**"
+      - "scripts/**"
+      - "lib/tts-text.ts"
+      - ".github/workflows/audio-tts.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: "audio-tts"
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx velite build
+      - run: npx next build
+      - run: npx tsx scripts/extract-audio-text.ts
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv pip install --system -r scripts/requirements-audio.txt
+      - run: uv run python scripts/generate_audio.py
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AUDIO_S3_BUCKET: ${{ vars.AUDIO_S3_BUCKET }}
