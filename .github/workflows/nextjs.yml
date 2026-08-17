@@ -79,6 +79,11 @@ jobs:
         run: ${{ steps.detect-package-manager.outputs.runner }} next build
         env:
           NEXT_PUBLIC_AUDIO_BASE_URL: ${{ vars.AUDIO_PUBLIC_BASE_URL }}
+          # actions/configure-pages' auto-codemod can't parse this repo's
+          # conditional next.config.mjs (see STATIC_EXPORT there and in
+          # docker/Dockerfile) and silently fails to inject output:"export",
+          # so set it explicitly instead of depending on that injection.
+          STATIC_EXPORT: "true"
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
