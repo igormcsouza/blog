@@ -35,11 +35,9 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-      - uses: actions/setup-python@v5
-        with:
           python-version: "3.12"
-      - run: uv pip install --system -r scripts/requirements-audio.txt
-      - run: uv run python scripts/generate_audio.py
+      - run: uv sync --project scripts
+      - run: uv run --project scripts python scripts/generate_audio.py
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

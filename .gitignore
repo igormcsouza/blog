@@ -22,6 +22,7 @@
 
 # audio pipeline build artifacts
 /.audio-build/
+/scripts/.venv/
 
 # production
 /build
