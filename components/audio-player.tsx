@@ -21,9 +21,42 @@ type AvailabilityState = "idle" | "checking" | "ready" | "unavailable" | "error"
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 const PROBE_TIMEOUT_MS = 6000;
+const PROBE_RETRY_ATTEMPTS = 3;
+const PROBE_RETRY_DELAY_MS = 500;
 const SCROLL_SUPPRESS_MS = 2000;
 const AUTO_SCROLL_MIN = 0.15;
 const AUTO_SCROLL_MAX = 0.75;
+
+/**
+ * Root cause of the intermittent "Couldn't connect" failures, confirmed by
+ * direct A/B testing in a live failing session: the browser's HTTP cache
+ * stores a single transient S3 error response (e.g. a 503) for this exact
+ * URL + method, then keeps serving that stale cached failure to every
+ * subsequent default-cache-mode fetch — sometimes for many minutes, until
+ * the entry is evicted — even though a `cache: "no-store"` request to the
+ * identical URL succeeds immediately, every time, in the same tab at the
+ * same moment. `no-store` bypasses that stale cache entirely, so this is
+ * the actual fix; the retry loop below is only a secondary safety net for
+ * genuine transient network failures, not what fixes the reported bug.
+ */
+async function probeWithRetry(url: string, signal: AbortSignal): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= PROBE_RETRY_ATTEMPTS; attempt++) {
+    if (signal.aborted) {
+      throw lastError ?? new DOMException("Aborted", "AbortError");
+    }
+    try {
+      return await fetch(url, { method: "HEAD", cache: "no-store", signal });
+    } catch (err) {
+      lastError = err;
+      if (attempt === PROBE_RETRY_ATTEMPTS) break;
+      await new Promise((resolve) =>
+        setTimeout(resolve, PROBE_RETRY_DELAY_MS * attempt)
+      );
+    }
+  }
+  throw lastError;
+}
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds)) return "0:00";
@@ -90,7 +123,7 @@ export function AudioPlayer({ slug }: AudioPlayerProps) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
 
-    fetch(mp3Url, { method: "HEAD", signal: controller.signal })
+    probeWithRetry(mp3Url, controller.signal)
       .then((res) => {
         setState(res.ok ? "ready" : "unavailable");
       })
@@ -115,7 +148,7 @@ export function AudioPlayer({ slug }: AudioPlayerProps) {
   useEffect(() => {
     if (state !== "ready" || !jsonUrl) return;
 
-    fetch(jsonUrl)
+    fetch(jsonUrl, { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error("timing fetch failed");
         return res.json();
