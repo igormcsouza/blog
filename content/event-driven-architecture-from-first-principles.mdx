@@ -249,31 +249,39 @@ This design has been drawn in AWS-flavored terms all along — here's the reason
 
 Same table, drawn as an actual AWS deployment instead of a list:
 
-<Mermaid chart={`architecture-beta
-    group vpc(cloud)[Order Fulfillment System]
+<Mermaid chart={`flowchart TD
+    customer(["Customer"])
+    paymentProvider[["Payment Provider"]]
+    carrier[["Shipping Carrier"]]
 
-    service gw(logos:aws-api-gateway)[API Gateway] in vpc
-    service bus(logos:aws-eventbridge)[Event Bus] in vpc
-    service orderSvc(logos:aws-lambda)[Order Service] in vpc
-    service paymentSvc(logos:aws-lambda)[Payment Service] in vpc
-    service inventorySvc(logos:aws-lambda)[Inventory Service] in vpc
-    service shippingSvc(logos:aws-lambda)[Shipping Service] in vpc
-    service notifySvc(logos:aws-lambda)[Notification Service] in vpc
-    service store(logos:aws-dynamodb)[Event Store] in vpc
-    service dlq(logos:aws-sqs)[Dead-letter Queue] in vpc
-    service saga(logos:aws-step-functions)[Step Functions] in vpc
-    service obs(logos:aws-cloudwatch)[CloudWatch / X-Ray] in vpc
+    subgraph aws["AWS Account"]
+        direction TB
+        orderSvc["Order Service\nLambda"]
+        bus{{"Event Bus\nEventBridge"}}
+        paymentSvc["Payment Service\nLambda"]
+        inventorySvc["Inventory Service\nLambda"]
+        shippingSvc["Shipping Service\nLambda"]
+        notifySvc["Notification Service\nLambda"]
+        store[("Event Store\nDynamoDB")]
+        dlq[/"Dead-letter Queue\nSQS"/]
+        saga(["Step Functions"])
+        obs["CloudWatch / X-Ray"]
 
-    gw:R -- L:orderSvc
-    orderSvc:R -- L:bus
-    bus:T -- B:paymentSvc
-    bus:R -- L:inventorySvc
-    bus:B -- T:shippingSvc
-    paymentSvc:T -- B:saga
-    paymentSvc:L -- R:dlq
-    dlq:T -- B:store
-    inventorySvc:T -- B:obs
-    shippingSvc:R -- L:notifySvc
+        orderSvc -- "OrderPlaced" --> bus
+        bus <-- "PaymentAuthorized /\nPaymentFailed" --> paymentSvc
+        bus <-- "InventoryReserved /\nInventoryRejected" --> inventorySvc
+        bus <-- "OrderShipped" --> shippingSvc
+        bus -- "every order event" --> notifySvc
+        bus -. "every event, appended" .-> store
+        orderSvc -. "failed deliveries" .-> dlq
+        paymentSvc -. "long-running saga" .-> saga
+        inventorySvc -. "traces" .-> obs
+    end
+
+    customer -- "POST /orders" --> orderSvc
+    paymentSvc -- "Authorizes charge" --> paymentProvider
+    shippingSvc -- "Books pickup" --> carrier
+    paymentProvider ~~~ carrier
 `} />
 
 <Card>
