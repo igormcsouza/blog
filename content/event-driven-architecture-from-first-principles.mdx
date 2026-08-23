@@ -1,0 +1,242 @@
+---
+title: "Event-Driven Architecture: Designing an Order Fulfillment System from First Principles"
+description: A synchronous order flow that collapses under load is the easy problem. Designing the event-driven system that replaces it — choreography, compensations, an AWS mapping, and the mental model to reuse on your own domain — is the actual architecture work.
+author: Igor Souza
+date: 2026-08-23
+published: true
+tags: ["architecture", "event-driven", "aws", "distributed-systems", "system-design"]
+---
+
+Picture the most obvious way to build an online store's checkout: a single `POST /orders` handler that, in one request, charges the customer's card, decrements inventory, books a carrier pickup, and sends a confirmation email — four synchronous calls, one after another, all inside the same HTTP request. It works in the demo. Then Black Friday traffic arrives, the carrier's API gets slow, and every request now holds its thread open waiting on a service you don't control and can't speed up. Threads pile up, the request queue backs up behind them, and soon customers whose payment already succeeded are staring at a spinner, because their order is stuck waiting on a shipping label. Worse: if the process crashes between "card charged" and "email sent," nothing remembers that charge ever happened. There's no record, no retry, no way back — just a customer who was billed for an order the system has no memory of.
+
+None of that is a bug in any one line of code. It's what happens when a business process that's inherently a sequence of independent steps, happening over time, gets modeled as one synchronous call stack. This post is about the alternative — not "add a queue somewhere," but designing an event-driven architecture (EDA) for this problem properly, from the ground up: what actually goes wrong with the naive fix, how to build the event model piece by piece, where the business logic lives independent of AWS or Kafka or anything else, and the mental model to carry into your own systems once the diagrams are gone. The domain is order fulfillment — Order Placed → Payment → Inventory → Shipping → Notification — chosen because it's the example nearly every serious treatment of EDA reaches for, from Gregor Hohpe's writing on enterprise integration to Adam Bellemare's *Building Event-Driven Microservices*. If you can reason about this one end to end, the reasoning transfers.
+
+## What actually breaks in a synchronous chain
+
+The checkout handler above has a name for its core defect: **temporal coupling**. Every step is forced to happen at the exact moment the one before it finishes, inside the exact same request, on the exact same thread. That's a much stronger constraint than the business actually needs — nothing about "ship the order" genuinely requires it to happen synchronously, in-line, before the customer's browser gets a response. Shipping can happen a second later, or an hour later; the customer doesn't need to wait for a tracking number to know their order was accepted.
+
+Temporal coupling is what turns "the shipping carrier is having a slow day" into "the whole checkout system is down." Every synchronous dependency in the chain becomes a single point of failure for the entire chain, and the chain is only as fast as its slowest link. This is the actual problem event-driven architecture exists to solve: decouple *when* something happens from *when the thing that triggered it* happened, so a slow or failing step degrades gracefully instead of taking the whole flow down with it.
+
+## The principal issues EDA itself introduces
+
+The instinct, once temporal coupling is named as the enemy, is to reach for a message queue and declare victory. That's necessary, but it's not sufficient — and treating it as sufficient is exactly the trap Gregor Hohpe, co-author of *Enterprise Integration Patterns*, has written about directly. Event-driven systems, he notes, "tend to exhibit an aura of simple elegance," and because they're "modeled after real world events the resulting system model is usually very expressive." That's true, and it's also the danger: "the simple elegance of EDAs can be deceiving," because designing one correctly is often *more* work than the synchronous version it replaces, not less. Publishing events instead of making calls doesn't remove the hard problems of distributed systems — it just moves them somewhere less visible.
+
+Four issues show up in essentially every EDA, and a design that doesn't name them up front will discover them in production instead:
+
+- **Coupling didn't disappear, it moved.** Two services no longer call each other directly, but if the consumer depends on the exact shape of the producer's event, they're still coupled — just through a schema instead of a function signature. Hohpe's point above is precisely this: "loosely coupled" is a design goal EDA makes *possible*, not one it grants automatically.
+- **Consistency becomes eventual, not immediate.** The moment `OrderPlaced` is published, the order exists in "placed" state everywhere except the services that haven't processed that event yet. There is no instant at which the whole system agrees on the order's status — only a window, usually milliseconds, sometimes longer under load, during which different parts of the system have different answers to "is this order paid?"
+- **Ordering and duplication aren't guaranteed for free.** Most brokers guarantee ordering only within a partition or a single stream, not globally, and most deliver *at-least once* — meaning the same event can arrive twice. A consumer that isn't built to handle a duplicate `PaymentAuthorized` will, sooner or later, double-charge something.
+- **A failure has nowhere obvious to go.** In a synchronous call, a failure is a stack trace with a caller waiting for it. In an event-driven flow, a failure is a message a consumer couldn't process — and unless the design explicitly says what happens next, that failure just evaporates, silently, with no one aware anything went wrong.
+
+<Callout icon="⚠️" type="warning">
+None of these four are edge cases to patch later — they're the actual design surface of an event-driven architecture. A plan that only decides "which services publish which events" and treats consistency, ordering, duplication, and failure-handling as implementation details hasn't designed the architecture yet; it's designed the happy path.
+</Callout>
+
+## Building the event model, piece by piece
+
+Start from the business process, not the infrastructure. The order fulfillment flow is a sequence of *facts that became true*, and each one is a candidate event, named in the past tense because an event is something that already happened and can't be un-happened:
+
+1. `OrderPlaced` — a customer submitted an order. This is the only event a synchronous request produces directly; everything after it happens independently.
+2. `PaymentAuthorized` / `PaymentFailed` — the payment provider approved or declined the charge.
+3. `InventoryReserved` / `InventoryRejected` — stock was set aside for the order, or there wasn't enough.
+4. `OrderShipped` — the carrier picked up the package.
+5. `OrderDelivered` — the carrier confirms drop-off (published by the carrier's own webhook, arriving whenever it arrives).
+
+Each event carries only what the *next* step needs to act — an order ID, the fields relevant to that step, and a correlation identifier tying every event for one order back together — not a dump of the entire order object. That restraint matters: an event with too much data becomes a second API contract nobody agreed to, and every field a consumer starts relying on is a field the producer can no longer change without breaking someone downstream.
+
+### Choreography or orchestration — and why this design picks one
+
+Once the events exist, something has to decide what triggers what. There are two well-established shapes for that, both named and analyzed in depth by Chris Richardson's work on the saga pattern for distributed transactions:
+
+- **Choreography**: every service reacts to events on its own. Payment Service listens for `OrderPlaced`; Inventory Service listens for `PaymentAuthorized`; nothing sits in the middle telling anyone what to do next. The flow *emerges* from each service's own subscriptions.
+- **Orchestration**: a central coordinator (Richardson calls it a saga orchestrator) explicitly calls each service in turn and tracks the state of the whole flow itself.
+
+For this system, **choreography is the right call**, for a specific reason: the order fulfillment flow has no step that needs to make a decision based on the *whole* flow's state — each service only ever needs to know about the one event immediately before it. There's no branching logic like "if the customer is a VIP, skip inventory reservation and orchestrate a rush order" that would need a central brain watching everything at once. Adam Bellemare's *Building Event-Driven Microservices* makes the same call for this class of problem: choreography keeps each service's logic local and lets services be added or removed from the flow without touching a central coordinator's code. The tradeoff, and it's real, is observability — nothing shows you the whole flow's state in one place, which is why the event store described below exists.
+
+<Card>
+**When would this design switch to orchestration instead?**
+
+The moment a step needs conditional branching that depends on more than the immediately preceding event — "if payment took longer than 30 seconds, cancel instead of waiting," "if this is a split shipment, wait for all parts before notifying" — that logic needs somewhere to live that can see the whole flow's state at once. That's exactly what an orchestrator is for. Don't retrofit that logic into a maze of choreographed listeners each guessing at global state from a local event; introduce an orchestrator (AWS Step Functions is a natural fit here, see the AWS mapping below) for that one flow, and let the rest of the system keep choreographing.
+</Card>
+
+## The business layer that doesn't know AWS exists
+
+Everything above — the five events, the choreography decision, the rule that payment must precede inventory reservation — is a business decision, not a technology one. It should be possible to describe the entire flow to a domain expert who has never heard of EventBridge, and it should be possible to unit-test every one of these rules without a broker, a queue, or a network connection anywhere in sight. That's the same discipline this blog covered in [Domain-Driven Design: Architecture That Grows with Your Business](/domain-driven-design-architecture-that-grows-with-your-business): a domain layer that has zero imports from any framework or infrastructure library, expressing "what a valid order looks like" and "what happens after payment succeeds" as plain business logic.
+
+In this architecture, that means:
+
+- **Domain events are domain objects.** `OrderPlaced`, `PaymentAuthorized`, and the rest are defined in the domain layer as plain data, with no dependency on EventBridge's SDK, Kafka's client library, or any serialization format tied to a specific broker.
+- **The domain decides *what* to publish; the infrastructure decides *how*.** A `PlaceOrder` use case in the application layer asks the domain to validate and create an order, and the domain returns (or raises) the fact that `OrderPlaced` happened. Only the infrastructure layer knows how to actually put that fact on a bus.
+- **Swapping EventBridge for Kafka, or Kafka for SNS+SQS, should never touch the domain layer.** If changing the broker means editing business logic, the boundary was drawn in the wrong place.
+
+This is also what makes the choreography decision above safe to revisit later: because no domain rule depends on *how* an event physically moves between services, migrating from choreography to a Step Functions orchestrator for one specific flow is an infrastructure and application-layer change, not a rewrite of what "a valid order" means.
+
+## The architecture, drawn — full view first
+
+The rest of this design is easiest to reason about visually, using the [C4 model](https://c4model.com), Simon Brown's now-standard notation for describing software architecture at different levels of zoom: Context (who talks to the system, from the outside), Container (what the system is actually made of), and, for a single container, Component. Two levels are enough for this design.
+
+Zoomed all the way out, the system is a single box the customer interacts with, sitting between three external parties it doesn't control:
+
+<Mermaid chart={`C4Context
+    title System Context — Order Fulfillment
+    Person(customer, "Customer", "Places an order in the online store")
+    System(orderSystem, "Order Fulfillment System", "Accepts orders and coordinates payment, inventory, and shipping through domain events")
+    System_Ext(paymentProvider, "Payment Provider", "Authorizes and captures card payments")
+    System_Ext(carrier, "Shipping Carrier", "Picks up and delivers packages")
+    System_Ext(notifyProvider, "Notification Provider", "Delivers transactional email and SMS")
+
+    Rel(customer, orderSystem, "Places order, checks status")
+    Rel(orderSystem, paymentProvider, "Authorizes payment", "HTTPS")
+    Rel(orderSystem, carrier, "Requests pickup, receives tracking", "HTTPS")
+    Rel(orderSystem, notifyProvider, "Sends order updates", "HTTPS")
+    Rel(notifyProvider, customer, "Delivers notification", "Email / SMS")
+`} />
+
+Nothing here says "event-driven" yet — this level deliberately doesn't. The Context view exists to answer "what is this system, and who/what does it talk to," not "how is it built." That's on purpose: a stakeholder deciding whether this system needs to integrate with a new carrier shouldn't need to understand choreography vs. orchestration to answer that question.
+
+## Zoomed in — the containers and the events between them
+
+One level in, the single box becomes the actual services and the event bus routing messages between them — this is where "event-driven" becomes visible:
+
+<Mermaid chart={`C4Container
+    title Container View — Order Fulfillment System
+    Person(customer, "Customer")
+
+    System_Boundary(order_system, "Order Fulfillment System") {
+        Container(orderSvc, "Order Service", "AWS Lambda", "Accepts orders, publishes OrderPlaced")
+        Container(paymentSvc, "Payment Service", "AWS Lambda", "Authorizes payment, publishes PaymentAuthorized / PaymentFailed")
+        Container(inventorySvc, "Inventory Service", "AWS Lambda", "Reserves stock, publishes InventoryReserved / InventoryRejected")
+        Container(shippingSvc, "Shipping Service", "AWS Lambda", "Books carrier pickup, publishes OrderShipped")
+        Container(notifySvc, "Notification Service", "AWS Lambda", "Sends customer-facing updates")
+        Container(bus, "Event Bus", "Amazon EventBridge", "Routes domain events to every interested consumer")
+        ContainerDb(eventStore, "Event Store", "DynamoDB", "Append-only record of every event, keyed by order id")
+    }
+
+    System_Ext(paymentProvider, "Payment Provider")
+    System_Ext(carrier, "Shipping Carrier")
+
+    Rel(customer, orderSvc, "POST /orders", "HTTPS")
+    Rel(orderSvc, bus, "Publishes OrderPlaced")
+    Rel(bus, paymentSvc, "OrderPlaced")
+    Rel(paymentSvc, paymentProvider, "Authorizes charge", "HTTPS")
+    Rel(paymentSvc, bus, "Publishes PaymentAuthorized / PaymentFailed")
+    Rel(bus, inventorySvc, "PaymentAuthorized")
+    Rel(inventorySvc, bus, "Publishes InventoryReserved / InventoryRejected")
+    Rel(bus, shippingSvc, "InventoryReserved")
+    Rel(shippingSvc, carrier, "Books pickup", "HTTPS")
+    Rel(shippingSvc, bus, "Publishes OrderShipped")
+    Rel(bus, notifySvc, "Every order-facing event")
+    Rel(bus, eventStore, "Every event, appended")
+`} />
+
+Every service is both a producer and a consumer, except Order Service (only produces, it's the entry point) and Notification Service (only consumes, it's the exit point). Nothing calls anything else's HTTP endpoint directly — every arrow that crosses a service boundary goes through the bus. That's the whole point made visible: no service holds a thread open waiting for another one.
+
+## Following one order through the flow
+
+The container diagram shows *what can talk to what*; it doesn't show the order the events actually happen in for one specific order. That's what a sequence diagram is for — the happy path first:
+
+<Mermaid chart={`sequenceDiagram
+    participant C as Customer
+    participant O as Order Service
+    participant Bus as Event Bus
+    participant P as Payment Service
+    participant I as Inventory Service
+    participant S as Shipping Service
+    participant N as Notification Service
+
+    C->>O: Place order
+    O->>Bus: OrderPlaced
+    Bus->>P: OrderPlaced
+    P->>Bus: PaymentAuthorized
+    Bus->>I: PaymentAuthorized
+    I->>Bus: InventoryReserved
+    Bus->>S: InventoryReserved
+    S->>Bus: OrderShipped
+    Bus->>N: OrderShipped
+    N-->>C: "Your order has shipped"
+`} />
+
+Notice what the customer's original request actually waits for: just `O->>Bus: OrderPlaced`. Everything after that happens outside the request/response cycle entirely. The customer gets an immediate "order accepted" response, and the rest of the diagram plays out over however long it actually takes — seconds, usually, but nothing breaks if the carrier takes an hour to confirm pickup.
+
+Now the path that actually justifies calling this a *design*, not just a happy-path diagram — what happens when a step fails after an earlier one already succeeded:
+
+<Mermaid chart={`sequenceDiagram
+    participant O as Order Service
+    participant Bus as Event Bus
+    participant P as Payment Service
+    participant I as Inventory Service
+    participant N as Notification Service
+
+    O->>Bus: OrderPlaced
+    Bus->>P: OrderPlaced
+    P->>Bus: PaymentAuthorized
+    Bus->>I: PaymentAuthorized
+    I->>Bus: InventoryRejected (out of stock)
+    Bus->>P: InventoryRejected
+    P->>P: Compensate: refund the authorization
+    P->>Bus: PaymentRefunded
+    Bus->>N: InventoryRejected
+    N-->>O: "Sorry — item unavailable, refund issued"
+`} />
+
+Payment already succeeded by the time Inventory discovers the item is out of stock. There's no database transaction spanning both services to roll back — that's not available across service boundaries in this architecture, and pretending otherwise is how EDAs quietly turn into distributed monoliths. Instead, Payment Service subscribes to `InventoryRejected` specifically so it can run a **compensating action**: not undoing history (the charge really did happen), but publishing a new fact, `PaymentRefunded`, that corrects it going forward. This is the saga pattern's actual mechanism, and it's the reason every service in a choreographed saga needs to know not just what it produces, but what failure events elsewhere it needs to *react* to.
+
+<Callout icon="💡" type="informative">
+Design every event-producing step with its compensating action decided at the same time, not as an afterthought. "What happens if this step succeeds but a later one fails?" is a question with a concrete, nameable answer for every step here — `PaymentRefunded`, `InventoryReleased`, a cancellation notice — and if a step doesn't have one yet, the design isn't finished, even if the happy-path diagram looks complete.
+</Callout>
+
+## Mapping the design onto AWS
+
+Nothing above names a specific vendor by accident until now — the container diagram already picked concrete AWS services, and here's the reasoning behind each choice, plus the alternatives that were considered and set aside for this scale:
+
+| Conceptual piece | AWS service | Why this one |
+|---|---|---|
+| Event bus | **Amazon EventBridge** | Built-in schema-based routing rules mean each service subscribes declaratively to the event *types* it cares about, with no consumer group or partition management to run yourself. Kafka on MSK is the better call once throughput or replay requirements grow past what EventBridge is built for — but that's a scaling decision to make later, not a starting assumption. |
+| Service compute | **AWS Lambda** | Each service here reacts to one event type and does bounded, short work — the textbook Lambda shape. Fargate becomes the better fit the moment a service needs to hold long-lived state in memory or run continuously regardless of event volume. |
+| Saga orchestration (for flows that need it) | **AWS Step Functions** | Named explicitly in the choreography-vs-orchestration callout above: the one place in this design where a flow needs to see its whole state at once, Step Functions gives that without hand-rolling a state machine. |
+| Event store / audit log | **Amazon DynamoDB** | An append-only table keyed by order ID answers "what happened to this order, in order" — the one thing choreography's decentralization makes hard to see anywhere else. Cheap to write to, and TTL support lets old orders age out automatically if the business doesn't need indefinite retention. |
+| Dead-letter handling | **Amazon SQS (DLQ)** | EventBridge rules can target an SQS dead-letter queue directly when a consumer repeatedly fails to process an event, so a stuck message becomes a visible, alertable queue depth instead of a silently dropped event. |
+| Observability | **CloudWatch + AWS X-Ray** | X-Ray traces a correlation ID across every Lambda invocation the event triggers, reconstructing the sequence-diagram-shaped flow above from real production traffic — the closest thing choreography has to the orchestrator's built-in visibility. |
+
+<Card>
+**Why not just use Kafka from day one, since so much EDA literature is Kafka-first?**
+
+Ben Stopford's *Designing Event-Driven Systems* — written from inside Confluent, the company behind Kafka — makes a strong case for Kafka specifically when a system needs event *replay*, long retention, or very high throughput fan-out to many consumers. Nothing in this order-fulfillment design needs any of those yet: five services, one event per order per step, no requirement to replay six months of history to rebuild a read model. Reaching for Kafka (and the operational cost of running or managing it) before the design actually needs replay or throughput at that scale is optimizing for a problem this system doesn't have. EventBridge is the deliberately smaller starting point; migrating the event bus later doesn't touch the domain layer, per the business-layer section above.
+</Card>
+
+## The mental model to keep
+
+Diagrams describe this one system. The mental model below is what's meant to survive past this specific order-fulfillment example and apply to whatever event-driven system gets designed next:
+
+| If this happens... | Do this | Not this |
+|---|---|---|
+| A consumer fails to process an event after retries | Route to a dead-letter queue and alert | Silently drop it, or retry forever and hide the failure |
+| Two services need the same data | Publish it as an event; let each own its own copy | Have one service call the other synchronously to fetch it |
+| A step succeeds but a later step in the same flow fails | Fire a named compensating event, decided at design time | Try to roll back across service boundaries with a distributed transaction |
+| A screen needs a strongly consistent, "right now" read | Build a dedicated read model (CQRS) fed by the events | Query the event log directly on every page load |
+| The same event might be delivered twice | Design every consumer to be idempotent (dedupe by event ID) | Assume "exactly once" and get surprised in production |
+| A flow needs a decision based on more than the immediately preceding event | Introduce an orchestrator for *that* flow | Chain conditional logic across choreographed listeners guessing at global state |
+| You're not sure whether two things are the "same" event or two different ones | Ask whether the business would describe them as one sentence or two | Merge them because it's fewer message types to define |
+
+## Why this way and not another — the actual design log
+
+Three decisions above deserve to be named explicitly as decisions, because a reader building their own system will face the same forks:
+
+- **Choreography over orchestration.** Chosen because no step here needs global flow state to make a local decision — see the choreography section above. This is a call specific to this domain's shape, not a universal preference; a flow with real branching logic would tip the other way, and that's fine — Step Functions is already in the toolbox for exactly that.
+- **EventBridge over Kafka.** Chosen for this scale and this lack of a replay requirement, per the AWS mapping section — not because Kafka is worse, but because it solves problems (replay, extreme fan-out, long retention) this design doesn't have yet.
+- **An explicit event store, even with choreography's decentralization.** Choreography's whole appeal is that no central piece needs to know about the whole flow — but that's also its cost: nothing shows you the whole flow's state in one place. The DynamoDB event store exists specifically to pay that cost back, on the observability side, without giving up the decoupling on the execution side.
+
+None of these are the *only* correct answers — they're the correct answers for a five-service order fulfillment flow with no complex branching, moderate throughput, and no replay requirement. Change any of those constraints and at least one of these three decisions should change with them. That's the actual skill this post is trying to hand off: not "here is the event-driven architecture," but the reasoning that produces one for whatever domain comes next.
+
+### Further Reading
+
+- [Gregor Hohpe — "Event-driven = Loosely coupled? Not so fast!"](https://www.enterpriseintegrationpatterns.com/ramblings/eventdriven_coupling.html)
+- Gregor Hohpe & Bobby Woolf, *Enterprise Integration Patterns* (Addison-Wesley, 2003)
+- Ben Stopford, *Designing Event-Driven Systems* (O'Reilly / Confluent, 2018)
+- Adam Bellemare, *Building Event-Driven Microservices* (O'Reilly, 2020)
+- [Chris Richardson — The Saga Pattern](https://microservices.io/patterns/data/saga.html)
+- [Martin Fowler — "What do you mean by Event-Driven?"](https://martinfowler.com/articles/201701-event-driven.html)
+- [Simon Brown — The C4 Model for Software Architecture](https://c4model.com)
+- [Mermaid — C4 Diagrams](https://mermaid.js.org/syntax/c4.html)
+- [Amazon EventBridge documentation](https://docs.aws.amazon.com/eventbridge/)
+- [AWS Step Functions documentation](https://docs.aws.amazon.com/step-functions/)

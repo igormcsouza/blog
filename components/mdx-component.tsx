@@ -1,10 +1,18 @@
 import * as React from "react"
 import * as runtime from "react/jsx-runtime";
 import Image from "next/image"
+import dynamic from "next/dynamic"
 
 import { cn } from "@/lib/utils"
 import { Callout } from "@/components/callout"
 import { MdxCard } from "@/components/mdx-card"
+
+// Mermaid renders to SVG client-side only (it touches the DOM directly and
+// isn't meaningful to prerender), so it's excluded from SSR entirely.
+const Mermaid = dynamic(
+  () => import("@/components/mermaid").then((mod) => mod.Mermaid),
+  { ssr: false }
+)
 
 const components = {
   h1: ({ className, ...props }: { className?: string }) => (
@@ -150,6 +158,7 @@ const components = {
   Image,
   Callout,
   Card: MdxCard,
+  Mermaid,
 }
 
 const useMDXComponent = (code: string) => {

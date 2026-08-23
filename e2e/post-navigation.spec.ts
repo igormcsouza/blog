@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 // suite.
 const OLDEST_POST = "welcome";
 const MIDDLE_POST = "we-need-to-talk-about-gil";
-const NEWEST_POST = "kafka-consumers-fastapi-and-the-kubernetes-amnesia-problem";
+const NEWEST_POST = "event-driven-architecture-from-first-principles";
 
 test.describe("Post navigation", () => {
   test("middle post shows both previous and next links", async ({ page }) => {

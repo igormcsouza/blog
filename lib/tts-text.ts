@@ -8,8 +8,13 @@
 
 export const NARRATION_ROOT_ID = "article-body";
 
+// [data-mermaid]: Mermaid diagrams render to an inline SVG client-side,
+// after hydration. Their <text>/<tspan> labels are visual diagram content,
+// not narration, and wrapping them in HTML <span>s (as wrapWords below
+// does for narratable text) is invalid inside SVG and can break the
+// diagram's rendering — so they're excluded the same way <pre>/<table> are.
 export const SKIP_SELECTOR =
-  "pre, table, figure[data-rehype-pretty-code-figure]";
+  "pre, table, figure[data-rehype-pretty-code-figure], [data-mermaid]";
 
 const BLOCK_TAGS = new Set([
   "P",
