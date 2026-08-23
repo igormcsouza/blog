@@ -10,9 +10,12 @@ test.describe("Mermaid diagrams", () => {
   }) => {
     await page.goto(POST_URL);
 
-    const diagrams = page.locator("[data-mermaid] svg");
+    // Direct child only — the AWS architecture diagram embeds per-icon
+    // <svg> elements nested inside its own diagram <svg>, which a
+    // descendant selector would also count.
+    const diagrams = page.locator("[data-mermaid] > svg");
     await expect(diagrams.first()).toBeVisible({ timeout: 10_000 });
-    await expect(diagrams).toHaveCount(6);
+    await expect(diagrams).toHaveCount(7);
 
     // The raw Mermaid syntax should never be visible as text — it should
     // have been replaced by the rendered SVG.

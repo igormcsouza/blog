@@ -8,6 +8,8 @@ interface MermaidProps {
   chart: string
 }
 
+let iconsRegistered = false
+
 export function Mermaid({ chart }: MermaidProps) {
   const { theme } = useThemeContext()
   const uid = React.useId().replace(/:/g, "")
@@ -21,6 +23,16 @@ export function Mermaid({ chart }: MermaidProps) {
     let cancelled = false
 
     import("mermaid").then(async ({ default: mermaid }) => {
+      if (!iconsRegistered) {
+        mermaid.registerIconPacks([
+          {
+            name: "logos",
+            loader: () => import("@iconify-json/logos").then((m) => m.icons),
+          },
+        ])
+        iconsRegistered = true
+      }
+
       mermaid.initialize({
         startOnLoad: false,
         theme: theme === "dark" ? "dark" : "default",
@@ -32,6 +44,15 @@ export function Mermaid({ chart }: MermaidProps) {
         flowchart: { useMaxWidth: false },
         sequence: { useMaxWidth: false },
         c4: { useMaxWidth: false },
+        architecture: { useMaxWidth: false },
+        themeVariables: {
+          // Explicit, high-contrast colors for subgraph/cluster titles —
+          // the built-in dark theme's default clusterBkg is dark enough
+          // to make the title text read as if it had no background at
+          // all against this site's near-black page background.
+          clusterBkg: theme === "dark" ? "#374151" : "#fef9c3",
+          clusterBorder: theme === "dark" ? "#6b7280" : "#ca8a04",
+        },
       })
 
       try {
@@ -55,3 +76,4 @@ export function Mermaid({ chart }: MermaidProps) {
     />
   )
 }
+
