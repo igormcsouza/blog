@@ -5,14 +5,14 @@ const POST_URL = "event-driven-architecture-from-first-principles";
 const SLUG = "event-driven-architecture-from-first-principles";
 
 test.describe("Mermaid diagrams", () => {
-  test("C4 and sequence diagrams render as SVG, not raw text", async ({
+  test("all iteration diagrams render as SVG, not raw text", async ({
     page,
   }) => {
     await page.goto(POST_URL);
 
     const diagrams = page.locator("[data-mermaid] svg");
     await expect(diagrams.first()).toBeVisible({ timeout: 10_000 });
-    await expect(diagrams).toHaveCount(4);
+    await expect(diagrams).toHaveCount(6);
 
     // The raw Mermaid syntax should never be visible as text — it should
     // have been replaced by the rendered SVG.
