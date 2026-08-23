@@ -25,6 +25,13 @@ export function Mermaid({ chart }: MermaidProps) {
         startOnLoad: false,
         theme: theme === "dark" ? "dark" : "default",
         securityLevel: "strict",
+        // Render at natural size and let the wrapper's overflow-x-auto
+        // handle wide diagrams (same pattern as this blog's code blocks),
+        // instead of Mermaid shrinking the SVG to fit the article column
+        // and crowding every label.
+        flowchart: { useMaxWidth: false },
+        sequence: { useMaxWidth: false },
+        c4: { useMaxWidth: false },
       })
 
       try {

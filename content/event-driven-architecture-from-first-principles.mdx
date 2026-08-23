@@ -77,19 +77,18 @@ The rest of this design is easiest to reason about visually, using the [C4 model
 
 Zoomed all the way out, the system is a single box the customer interacts with, sitting between three external parties it doesn't control:
 
-<Mermaid chart={`C4Context
-    title System Context — Order Fulfillment
-    Person(customer, "Customer", "Places an order in the online store")
-    System(orderSystem, "Order Fulfillment System", "Accepts orders and coordinates payment, inventory, and shipping through domain events")
-    System_Ext(paymentProvider, "Payment Provider", "Authorizes and captures card payments")
-    System_Ext(carrier, "Shipping Carrier", "Picks up and delivers packages")
-    System_Ext(notifyProvider, "Notification Provider", "Delivers transactional email and SMS")
+<Mermaid chart={`flowchart TD
+    customer(["Customer\nPlaces an order in the online store"])
+    orderSystem["Order Fulfillment System\nAccepts orders, coordinates payment,\ninventory, and shipping via events"]
+    paymentProvider[["Payment Provider\nAuthorizes and captures payments"]]
+    carrier[["Shipping Carrier\nPicks up and delivers packages"]]
+    notifyProvider[["Notification Provider\nDelivers transactional email / SMS"]]
 
-    Rel(customer, orderSystem, "Places order, checks status")
-    Rel(orderSystem, paymentProvider, "Authorizes payment", "HTTPS")
-    Rel(orderSystem, carrier, "Requests pickup, receives tracking", "HTTPS")
-    Rel(orderSystem, notifyProvider, "Sends order updates", "HTTPS")
-    Rel(notifyProvider, customer, "Delivers notification", "Email / SMS")
+    customer -- "Places order, checks status" --> orderSystem
+    orderSystem -- "Authorizes payment" --> paymentProvider
+    orderSystem -- "Requests pickup" --> carrier
+    orderSystem -- "Sends order updates" --> notifyProvider
+    notifyProvider -. "Delivers notification" .-> customer
 `} />
 
 Nothing here says "event-driven" yet — this level deliberately doesn't. The Context view exists to answer "what is this system, and who/what does it talk to," not "how is it built." That's on purpose: a stakeholder deciding whether this system needs to integrate with a new carrier shouldn't need to understand choreography vs. orchestration to answer that question.
@@ -98,35 +97,32 @@ Nothing here says "event-driven" yet — this level deliberately doesn't. The Co
 
 One level in, the single box becomes the actual services and the event bus routing messages between them — this is where "event-driven" becomes visible:
 
-<Mermaid chart={`C4Container
-    title Container View — Order Fulfillment System
-    Person(customer, "Customer")
+<Mermaid chart={`flowchart TD
+    customer(["Customer"])
+    paymentProvider[["Payment Provider"]]
+    carrier[["Shipping Carrier"]]
 
-    System_Boundary(order_system, "Order Fulfillment System") {
-        Container(orderSvc, "Order Service", "AWS Lambda", "Accepts orders, publishes OrderPlaced")
-        Container(paymentSvc, "Payment Service", "AWS Lambda", "Authorizes payment, publishes PaymentAuthorized / PaymentFailed")
-        Container(inventorySvc, "Inventory Service", "AWS Lambda", "Reserves stock, publishes InventoryReserved / InventoryRejected")
-        Container(shippingSvc, "Shipping Service", "AWS Lambda", "Books carrier pickup, publishes OrderShipped")
-        Container(notifySvc, "Notification Service", "AWS Lambda", "Sends customer-facing updates")
-        Container(bus, "Event Bus", "Amazon EventBridge", "Routes domain events to every interested consumer")
-        ContainerDb(eventStore, "Event Store", "DynamoDB", "Append-only record of every event, keyed by order id")
-    }
+    subgraph system["Order Fulfillment System"]
+        direction TB
+        orderSvc["Order Service\nAWS Lambda"]
+        bus{{"Event Bus\nAmazon EventBridge"}}
+        paymentSvc["Payment Service\nAWS Lambda"]
+        inventorySvc["Inventory Service\nAWS Lambda"]
+        shippingSvc["Shipping Service\nAWS Lambda"]
+        notifySvc["Notification Service\nAWS Lambda"]
+        eventStore[("Event Store\nDynamoDB")]
 
-    System_Ext(paymentProvider, "Payment Provider")
-    System_Ext(carrier, "Shipping Carrier")
+        orderSvc -- "OrderPlaced" --> bus
+        bus <-- "PaymentAuthorized /\nPaymentFailed" --> paymentSvc
+        bus <-- "InventoryReserved /\nInventoryRejected" --> inventorySvc
+        bus <-- "OrderShipped" --> shippingSvc
+        bus -- "every order event" --> notifySvc
+        bus -. "every event, appended" .-> eventStore
+    end
 
-    Rel(customer, orderSvc, "POST /orders", "HTTPS")
-    Rel(orderSvc, bus, "Publishes OrderPlaced")
-    Rel(bus, paymentSvc, "OrderPlaced")
-    Rel(paymentSvc, paymentProvider, "Authorizes charge", "HTTPS")
-    Rel(paymentSvc, bus, "Publishes PaymentAuthorized / PaymentFailed")
-    Rel(bus, inventorySvc, "PaymentAuthorized")
-    Rel(inventorySvc, bus, "Publishes InventoryReserved / InventoryRejected")
-    Rel(bus, shippingSvc, "InventoryReserved")
-    Rel(shippingSvc, carrier, "Books pickup", "HTTPS")
-    Rel(shippingSvc, bus, "Publishes OrderShipped")
-    Rel(bus, notifySvc, "Every order-facing event")
-    Rel(bus, eventStore, "Every event, appended")
+    customer -- "POST /orders" --> orderSvc
+    paymentSvc -- "Authorizes charge" --> paymentProvider
+    shippingSvc -- "Books pickup" --> carrier
 `} />
 
 Every service is both a producer and a consumer, except Order Service (only produces, it's the entry point) and Notification Service (only consumes, it's the exit point). Nothing calls anything else's HTTP endpoint directly — every arrow that crosses a service boundary goes through the bus. That's the whole point made visible: no service holds a thread open waiting for another one.
