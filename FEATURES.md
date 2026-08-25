@@ -10,7 +10,7 @@ E2E tests run in `e2e/` via Playwright (`npm run test:e2e`), on pull requests
 viewports, each in light and dark color scheme. A feature scenario doesn't
 need to special-case viewport/theme itself unless the feature's behavior
 actually differs between them (e.g. hidden-on-mobile elements, theme class
-assertions) — the project matrix runs every spec through all four
+assertions), the project matrix runs every spec through all four
 combinations for free.
 
 | Feature | Introduced in | Covered by |
@@ -26,10 +26,10 @@ combinations for free.
 | Mobile responsive layout | f7938a2 (#6) | `e2e/responsive.spec.ts` |
 | Favicon under `/blog` base path | d16327e (#7) | `e2e/responsive.spec.ts` |
 | Theme toggle (light/dark, persisted, OS-default) | 236a199 (#8), 9edd944 (#10) | `e2e/theme.spec.ts` |
-| Custom 404 page | — | `e2e/navigation.spec.ts` |
+| Custom 404 page | N/A | `e2e/navigation.spec.ts` |
 | Per-page HTML `<title>` | bb437cf (#9) | `e2e/seo-titles.spec.ts` |
 | No blank/flash-of-empty-body on first paint (dev flicker regression) | 9edd944 (#10) | `e2e/theme.spec.ts` |
-| Read-aloud audio player (listen icon, play/pause/speed, word highlight, follow-scroll, graceful no-audio fallback) | — | `e2e/audio-player.spec.ts` |
+| Read-aloud audio player (listen icon, play/pause/speed, word highlight, follow-scroll, graceful no-audio fallback) | N/A | `e2e/audio-player.spec.ts` |
 
 ## Adding a feature
 
@@ -38,8 +38,7 @@ combinations for free.
 2. Prefer structural/role-based assertions (`getByRole`, `getByText`) over
    pixel coordinates or CSS class snapshots, so tests survive redesigns.
 3. If the feature is genuinely content-dependent (specific post titles,
-   tags), it's fine to assert on today's fixture content in `content/*.mdx`
-   — just know the test will need a matching update if that content changes.
+   tags), it's fine to assert on today's fixture content in `content/*.mdx`, just know the test will need a matching update if that content changes.
 4. Add a row to the table above.
 5. Run `npm run test:e2e` locally before opening the PR (`npm run
    test:e2e:ui` for the interactive runner while iterating).
@@ -51,6 +50,6 @@ This site is deployed with `basePath: "/blog"` (`next.config.mjs`). In
 **with a trailing slash**. Because of how `new URL(path, baseURL)`
 resolution works, every `page.goto(...)` call in this suite must use a
 **relative path with no leading slash** (`page.goto("tags/welcome")`, and
-`page.goto("")` for the home page) — a leading slash resets to the origin
+`page.goto("")` for the home page), a leading slash resets to the origin
 root and silently drops the `/blog` prefix, which manifests as a 404 that
 has nothing to do with your change.
