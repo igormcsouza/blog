@@ -100,10 +100,9 @@ Process that worked for a long-form post (SOLID, PR #60):
    only what the author said about themselves, and use hypotheticals
    ("picture a...") for anything else. Flag this in the hand-off so they can
    add a real story.
-4. **No em dashes** in articles or docs (see Writing Style above).
-5. **Fact-check everything not in the author's source notes** (dates, names,
+4. **Fact-check everything not in the author's source notes** (dates, names,
    quotes, links) before pushing. Use searches, cite sources, and list what
    could not be verified. Avoid unverifiable archive links; prefer stable ones
    (ACM DOI, publisher pages).
-6. **Validate before pushing:** `npx velite`, `npm run lint`, and confirm the
-   page renders. Commit only the content file.
+5. **Validate before pushing:** `npx velite`, `npm run lint`, and confirm the
+   page renders.
