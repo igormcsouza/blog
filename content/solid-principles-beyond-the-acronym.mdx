@@ -49,7 +49,7 @@ Here is a detail that surprised me: Martin did not invent all five ideas from sc
 - The **Liskov Substitution Principle** comes from Barbara Liskov, who presented the idea in a 1987 conference keynote and later formalized it with Jeannette Wing in the mid-90s. It is the most academic of the five, and it is really about *behavior*, not syntax.
 - The **Interface Segregation Principle** has a great origin story. Martin was consulting for Xerox on a new printer system. Every task in the system (printing, stapling, faxing) went through a single, giant `Job` class, so any change to one kind of task forced a rebuild and redeploy of everything that touched `Job`. The fix was to give each client its own small interface. That experience became ISP.
 - The **Dependency Inversion Principle** came out of Martin's mid-90s writing on C++ design, the observation that the usual "high-level calls low-level" dependency arrow should often be flipped.
-- Martin collected these principles around 2000, in a paper titled *Design Principles and Design Patterns*. The catchy **SOLID acronym** came a bit later, coined by Michael Feathers, who noticed that the first letters of the five principles spelled a real word. It is a genuinely great naming job. It is also the reason the five ideas travel together, even though they were born in different places for different reasons.
+- Martin collected these principles around 2000, in a paper titled *Design Principles and Design Patterns*. The catchy **SOLID acronym** came a bit later, coined by Michael Feathers around 2004. It is a genuinely great naming job. It is also the reason the five ideas travel together, even though they were born in different places for different reasons.
 
 That last point is worth sitting with. SOLID is a *curated collection*, not a single theory handed down from a mountain. Knowing that made it feel a lot less intimidating to me, and a lot easier to question.
 
@@ -446,10 +446,10 @@ If your own experience with these principles differs from mine, especially if yo
 
 ### Further Reading
 
-- Robert C. Martin, [*Design Principles and Design Patterns*](https://web.archive.org/web/20150906155800/http://www.objectmentor.com/resources/articles/Principles_and_Patterns.pdf) (2000)
+- Robert C. Martin, [*Design Principles and Design Patterns*](https://www.fil.univ-lille.fr/~routier/enseignement/licence/coo/cours/Principles_and_Patterns.pdf) (2000)
 - Robert C. Martin, *Agile Software Development: Principles, Patterns, and Practices* (Prentice Hall, 2002)
 - Robert C. Martin, *Clean Architecture* (Prentice Hall, 2017)
 - Bertrand Meyer, *Object-Oriented Software Construction* (Prentice Hall, 1988)
-- Barbara Liskov and Jeannette Wing, [*A Behavioral Notion of Subtyping*](https://www.cs.cmu.edu/~wing/publications/LiskovWing94.pdf) (1994)
+- Barbara Liskov and Jeannette Wing, [*A Behavioral Notion of Subtyping*](https://dl.acm.org/doi/10.1145/197320.197383) (1994)
 - [Sandi Metz, "The Wrong Abstraction"](https://sandimetz.com/blog/2016/1/20/the-wrong-abstraction)
 - [Robert C. Martin, "The Single Responsibility Principle"](https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html)
