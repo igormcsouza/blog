@@ -295,9 +295,9 @@ This is the section I wish someone had shown me in university. SOLID principles 
 
 The rule of thumb I have adopted: **do not abstract on the first use.** Write the straightforward code. When the second variation appears, notice it. When the third one arrives, you now have real evidence about *what actually varies*, and you can cut along that seam with confidence. The principles tell you *how* to cut once you know where change happens. They do not tell you *whether* to cut. That judgment is yours, and it is informed by the pain of real changes, not imagined ones.
 
-## Exercise: SOLID as a diagnostic tool, not a checklist
+## One more example: reading a messy function like a diagnostician
 
-Reading about principles is passive. To check whether I could actually spot problems, I ran an exercise on myself. Here is the code, and I encourage you to try it before reading on. For each smell you find: (1) name it and where it is, (2) guess which principle it violates, or say "none, it is just a plain smell", and (3) say how you would fix it, or whether you would leave it alone. Leaving something alone is a valid answer.
+The first example was tidy on purpose: every flaw mapped neatly to one principle. Real code is messier. Here is a second one, closer to what you actually meet in a codebase, where some problems are SOLID problems and some are just plain problems. A useful way to read it is to list every smell you see and, for each one, ask whether a principle applies or whether it is simply a smell. Try it yourself before reading my breakdown.
 
 ```python
 import boto3, smtplib, requests
@@ -342,30 +342,13 @@ def monthly_report(items):
     return total
 ```
 
-### My attempt
+### The SOLID problems
 
-Here is what I came up with on the first pass:
+**Single Responsibility.** `create_invoice` does pricing, tax, persistence, formatting, email, and Slack notification, all in one place. The fix is not to split it into six classes just because you can. Pull out tax, formatting, and persistence first, since those are the parts most likely to change, and leave the rest until change shows you where the seams are.
 
-1. `create_invoice` has many responsibilities (email, and more): **Single Responsibility**.
-2. `InvoiceManager` depends on DynamoDB directly, so swapping databases is painful. Use a repository: **Dependency Inversion**.
-3. `ReadOnlyInvoiceManager` breaks the parent's contract: **Liskov Substitution**.
-4. `monthly_report` duplicates the subtotal loop at the start of `create_invoice`. I guessed this was the fourth principle, **Interface Segregation**.
+**Dependency Inversion.** `InvoiceManager` talks to DynamoDB, SMTP, and Slack directly. Swapping databases would hurt, but the bigger payoff is testing: right now you cannot test `create_invoice` without a real DynamoDB table, a real mail server, and a real Slack webhook. Inject a repository and a notifier, and the test needs neither.
 
-### What I got right
-
-**SRP was correct.** The method does pricing, tax, persistence, formatting, email, and Slack notification, all in one place. One warning, though: do not split it into six classes just because you can. Pull out tax, formatting, and persistence first, since those are the parts most likely to change. Leave the rest until change shows you where the seams are.
-
-**DIP was correct**, with a small correction to my reasoning. The bigger payoff is testing, not swapping databases. Right now you cannot test `create_invoice` without a real DynamoDB table, a real mail server, and a real Slack webhook. That, more than any hypothetical migration, is the reason to invert those dependencies.
-
-**LSP was correct.** The fix is refreshingly simple: do not inherit. A read-only manager should not be a subclass of something whose main job is writing. Either split reading and writing into separate types, or delete the class.
-
-### The one I got wrong
-
-Number four. The duplication is real, but it is **not** Interface Segregation. ISP is about clients being forced to depend on methods they do not use, and there is no fat interface anywhere in this code. What I found is a plain smell, usually called **DRY** (Don't Repeat Yourself), and the fix is small: extract a `subtotal(items)` function and call it from both places. No classes, no abstractions.
-
-I want to highlight this, because it is exactly the trap that makes SOLID feel slippery. When you are studying five named principles, you start wanting to match every smell to one of them, and the acronym becomes a lens that makes everything look like a nail. It is fine for a smell to be *just a smell*.
-
-### What I missed entirely
+**Liskov Substitution.** `ReadOnlyInvoiceManager` inherits a method whose whole purpose is writing, then refuses to do it. Any caller holding an `InvoiceManager` is in for a surprise. The fix is refreshingly simple: do not inherit. Split reading and writing into separate types, or delete the class.
 
 **Open/Closed.** Both `if/elif` chains (country tax and output kind) mean a new country or a new format requires editing this function. In Python, the fix is a dictionary, not a class hierarchy:
 
@@ -378,19 +361,22 @@ FORMATTERS = {
 }
 ```
 
-**And a pile of plain smells that have nothing to do with SOLID:**
+Adding a country or a format is one new line in a table, and the function never changes.
 
+### The plain smells
+
+Now the part that matters just as much. Several problems in this snippet have nothing to do with SOLID:
+
+- **Duplication.** `monthly_report` repeats the subtotal loop from the start of `create_invoice`. It is tempting to blame Interface Segregation, but there is no fat interface anywhere in this code. This is plain **DRY** (Don't Repeat Yourself), and the fix is small: extract a `subtotal(items)` function and call it from both places. No classes, no abstractions.
 - An unknown `kind` leaves `out` undefined, so the function crashes with a confusing error.
 - An unknown country silently gets no tax at all, which is worse than crashing.
 - Money is handled as floats and converted with `str()`. Use `Decimal` for currency.
 - The Slack URL and the mail host are hardcoded. Move them to configuration.
 - The database save happens before the email and Slack calls, so if the email fails, you have an invoice that is saved but never delivered.
 
-That last list is the most valuable part of the exercise. Some of the worst bugs in that snippet are ones SOLID has nothing to say about. The principles help you organize code, but they do not replace thinking about failure modes, data types, and configuration.
-
 ### The takeaway
 
-Interface Segregation had **no place** in this code, and that is a good sign. Not every principle applies to every snippet. If you are using SOLID as a checklist, you will feel pressure to find five violations in everything you read. If you are using it as a **diagnostic tool**, you reach for the right principle when a specific symptom shows up, and you leave the others alone.
+Notice that Interface Segregation had **no place** in this code, and that is a good sign. Not every principle applies to every snippet. If you treat SOLID as a checklist, you will feel pressure to find five violations in everything you read, and you will start labeling every smell with a letter. If you treat it as a **diagnostic tool**, you reach for the right principle when a specific symptom shows up and leave the others alone. It is fine for a smell to be *just a smell*, and some of the worst bugs above are ones SOLID has nothing to say about. The principles help you organize code, but they do not replace thinking about failure modes, data types, and configuration.
 
 ## How to remember SOLID when someone asks
 
