@@ -1,0 +1,469 @@
+---
+title: "SOLID Beyond the Acronym: The Problem It Was Built to Solve"
+description: I understood SOLID for years and still couldn't explain it when asked. Here is the story behind it, the rot it fights, how to spot good and bad usage in code, and how to finally make it stick.
+author: Igor Souza
+date: 2026-09-29
+published: true
+tags: ["solid", "architecture", "design-principles", "python", "clean-code"]
+---
+I have been building software for quite some time now, and SOLID is one of those things I have seen everywhere. It was in my Software Engineering bachelor's course, it shows up in code reviews, it is in every "senior interview" question list, and it is in half of the architecture talks I have watched. And yet, it never stuck to my mind.
+
+The weird part is that it is not a comprehension problem. I understand the principles. I can apply them when I am writing code, and I can usually tell when a class is doing too much. But when someone asks me over lunch, "hey, what is SOLID, actually?", I freeze. I get to "S is for... single... something" and then it turns into a mumble about interfaces and dependencies. Knowing how to use an idea and being able to explain it are two different skills, and I had only ever trained the first one.
+
+So this post is my attempt to fix that, for me and hopefully for you. Instead of walking through the five letters in order and calling it a day, I want to do it the way that finally worked for me: start with the *problem* that the author was trying to solve, because once you know the pain, the five principles stop being five random rules and become five answers to the same question. Then we will look at good and bad usage of each one, how to recognize them in real code, what happens when you overuse them (which is very easy to do), and finally some tricks to remember all of it when someone puts you on the spot.
+
+## What SOLID actually is
+
+SOLID is a set of five object-oriented design principles, popularized by Robert C. Martin (known as "Uncle Bob"), meant to keep code easy to change, extend, and test as it grows. Here is the cheat sheet we will keep coming back to:
+
+| Letter | Principle | One-liner |
+|---|---|---|
+| **S** | Single Responsibility | A module or class should have one reason to change. |
+| **O** | Open/Closed | Add new behavior by adding new code, not by editing existing, working code. |
+| **L** | Liskov Substitution | Code that works with a base type must keep working with any subtype. |
+| **I** | Interface Segregation | Don't force clients to depend on methods they don't use. |
+| **D** | Dependency Inversion | High-level logic shouldn't depend on low-level details; both should depend on abstractions. |
+
+If you read that table and thought "yeah, I know all of this", welcome, you are exactly who I am writing for. Knowing the one-liners is the easy part. The hard part is knowing *why* they exist, *where they come from*, and *when to stop applying them*.
+
+The single most useful thing I learned while preparing this post is that the five principles are not five separate ideas. They overlap a lot. They are five angles on one goal: **small, well-separated pieces that depend on stable abstractions rather than on each other's internals.** The core theme is managing dependencies. Code that is tangled together breaks in surprising ways when requirements shift, and SOLID is a toolbox for untangling it.
+
+## The story behind it: software rots
+
+To understand where SOLID comes from, we have to go back to the late 1990s and early 2000s, when Robert C. Martin was writing and consulting about object-oriented design. He was reacting to something he called **rotting software**: systems that start out clean and, over years of changes, become painful to modify.
+
+You have probably lived this. The first version of a codebase is a joy. Six months later it is fine. Two years later, every ticket that says "small change" takes a week, and nobody wants to touch the billing module. Martin gave that feeling a vocabulary, four symptoms of a rotting design:
+
+- **Rigidity:** one small change forces changes in many other places. You wanted to rename a field, and now you are editing eleven files.
+- **Fragility:** you change one thing and something unrelated breaks. You touched the invoice code and the login page stopped working.
+- **Immobility:** you cannot reuse a piece elsewhere because it is tangled up with everything around it. You want that nice date-parsing logic in another service, but it drags half the application along.
+- **Viscosity:** the easy way to change things is a hack, and the right way is painful. So everyone hacks, and the rot accelerates.
+
+His diagnosis was that the root cause of all four is **bad dependency management**. When modules know too much about each other's details, a change in one ripples through the others. Fix the dependencies, and you stop the rot.
+
+### Where each principle came from
+
+Here is a detail that surprised me: Martin did not invent all five ideas from scratch, and the acronym is not even his.
+
+- The **Open/Closed Principle** comes from Bertrand Meyer, in his 1988 book *Object-Oriented Software Construction*. Meyer's original idea was about inheritance: a class is "closed" once finished and "open" to being extended by subclasses. Martin later reinterpreted it around abstract interfaces, which is the version most of us know today.
+- The **Liskov Substitution Principle** comes from Barbara Liskov, who presented the idea in a 1987 conference keynote and later formalized it with Jeannette Wing in the mid-90s. It is the most academic of the five, and it is really about *behavior*, not syntax.
+- The **Interface Segregation Principle** has a great origin story. Martin was consulting for Xerox on a new printer system. Every task in the system (printing, stapling, faxing) went through a single, giant `Job` class, so any change to one kind of task forced a rebuild and redeploy of everything that touched `Job`. The fix was to give each client its own small interface. That experience became ISP.
+- The **Dependency Inversion Principle** came out of Martin's mid-90s writing on C++ design, the observation that the usual "high-level calls low-level" dependency arrow should often be flipped.
+- Martin collected these principles around 2000, in a paper titled *Design Principles and Design Patterns*. The catchy **SOLID acronym** came a bit later, coined by Michael Feathers, who noticed that the first letters of the five principles spelled a real word. It is a genuinely great naming job. It is also the reason the five ideas travel together, even though they were born in different places for different reasons.
+
+That last point is worth sitting with. SOLID is a *curated collection*, not a single theory handed down from a mountain. Knowing that made it feel a lot less intimidating to me, and a lot easier to question.
+
+## The mental model that ties it all together
+
+Here is the trick that changed everything for me. Each principle answers the same question:
+
+> **"How do I stop a change here from rippling over there?"**
+
+- **SRP** limits *why* code changes. If a class has one reason to change, fewer changes land on it.
+- **OCP** lets you extend without editing. New behavior arrives as new code, so old code is not disturbed.
+- **LSP** keeps subtypes from surprising callers. Swapping one implementation for another does not break the code that uses it.
+- **ISP** keeps you from depending on things you do not use. Changes to methods you never call cannot hurt you.
+- **DIP** points dependencies at stable abstractions instead of volatile details. The parts that change often are kept at the edges.
+
+Now let me make that concrete, because principles are slippery until you watch them work on real code.
+
+## A worked example: one bad class, fixed one principle at a time
+
+I like examples in Python for this, because Python does not force ceremony on us. Here is a deliberately terrible class, the kind of thing that grows naturally in a real project:
+
+```python
+class OrderService:
+    def process(self, order, customer_type):
+        total = sum(i.price * i.qty for i in order.items)
+        if customer_type == "vip":
+            total *= 0.9
+        elif customer_type == "employee":
+            total *= 0.7
+        db = sqlite3.connect("shop.db")
+        db.execute("INSERT INTO orders VALUES (?)", (total,))
+        smtplib.SMTP("mail.shop.com").sendmail(
+            "shop@x.com", order.email, f"Total: {total}")
+        return total
+
+class Shippable:  # fat interface
+    def ship(self): ...
+    def download_link(self): ...
+
+class EBook(Shippable):
+    def ship(self):
+        raise NotImplementedError  # it's a file!
+```
+
+It works. It probably even has a passing test somewhere. And it violates all five principles at once. Let's fix it one at a time, and notice how each step sets up the next.
+
+### 1. Single Responsibility
+
+`process` does pricing, persistence, and email. A change to the discount rules, the database, or the email template all land in this one method. That is three unrelated reasons to change, jammed into one place. Split by reason to change:
+
+```python
+class PricingCalculator: ...      # discounts, totals
+class SqliteOrderRepository: ...  # save()
+class SmtpNotifier: ...           # send()
+
+class OrderService:  # only coordinates
+    def process(self, order, customer_type):
+        total = self.pricing.total(order, customer_type)
+        self.repo.save(order, total)
+        self.notifier.send(order.email, f"Total: {total}")
+        return total
+```
+
+Notice that `OrderService` is not empty. It still has a job, which is orchestration: "price it, save it, tell the customer." That is its single responsibility.
+
+A common misunderstanding is that SRP means "a class should do only one thing." That reading leads to absurd code with one-method classes. The better reading, and the one Martin himself settled on in later years, is that a module should be responsible to **one actor**, meaning one group of people who would ask for changes. Finance changes the pricing. Ops changes the database. Marketing changes the email copy. If those three groups can all break each other's code by editing the same method, the design is wrong.
+
+### 2. Open/Closed
+
+Adding a "student" discount today means editing the `if/elif` chain, in code that already works and is already tested. Every edit is a chance to break the VIP and employee cases. Make each discount its own class:
+
+```python
+class VipDiscount:
+    def apply(self, total): return total * 0.9
+
+class EmployeeDiscount:
+    def apply(self, total): return total * 0.7
+
+class PricingCalculator:
+    def total(self, order, discount):
+        return discount.apply(sum(i.price * i.qty for i in order.items))
+```
+
+A new discount is a new class, and nothing existing changes. That is the whole idea: the system is *open* to extension and *closed* to modification.
+
+### 3. Liskov Substitution
+
+This code looks innocent, and it crashes:
+
+```python
+for item in items:
+    item.ship()  # boom, when item is an EBook
+```
+
+`EBook` claims to be a `Shippable`, but it breaks the contract by raising an error where a caller expects shipping to work. A subtype must be usable anywhere its parent is. The lesson is that matching method *signatures* is not enough. A subclass must honor the parent's *promises*. The simplest fix here is that `EBook` should not inherit `ship()` at all.
+
+### 4. Interface Segregation
+
+Why did that crash happen in the first place? Because one fat interface forced `EBook` to implement something that is meaningless for it. Split it into small interfaces that each describe one capability:
+
+```python
+class Shippable(Protocol):
+    def ship(self): ...
+
+class Downloadable(Protocol):
+    def download_link(self): ...
+
+class Book:  # implements Shippable
+    ...
+
+class EBook:  # implements Downloadable
+    ...
+```
+
+Now a `Book` is only asked to be shippable and an `EBook` is only asked to be downloadable. Notice how LSP and ISP are two views of the same bug: LSP tells you the code is broken, and ISP tells you why the design invited the breakage.
+
+### 5. Dependency Inversion
+
+`OrderService` should depend on abstractions, not on SQLite or SMTP directly:
+
+```python
+class Repository(Protocol):
+    def save(self, order, total): ...
+
+class Notifier(Protocol):
+    def send(self, to, message): ...
+
+class OrderService:
+    def __init__(self, pricing, repo: Repository, notifier: Notifier):
+        self.pricing = pricing
+        self.repo = repo
+        self.notifier = notifier
+```
+
+Now you can swap SQLite for DynamoDB or SMTP for SES without touching `OrderService`. And, honestly, that swapping scenario happens far less often than people claim. The real payoff is **testing**: in a test, you pass in fakes instead of a real database and a real mail server, and the test runs in milliseconds with nothing to set up.
+
+**How the steps feed each other:** SRP created the pieces, DIP wired them together loosely, and OCP is what made the discount piece extensible. That interplay is the point. They are not five independent checkboxes.
+
+## Recognizing each principle in the wild
+
+Knowing the definition is one thing. Being able to look at a pull request and *feel* the violation is the skill that actually matters. For each principle, here is what the bad version tends to look like, what the good version looks like, and a question you can ask yourself while reading code.
+
+### Single Responsibility
+
+**Smells of a violation:**
+
+- The class name contains "And", "Manager", "Handler", "Util", or "Helper", and nobody can describe it in one sentence without using the word "and".
+- The imports at the top of the file are a random mix: an HTTP client, a database driver, a mail library, and a PDF renderer.
+- Two teammates keep getting merge conflicts in the same file, for completely unrelated features.
+- A method has comment banners like `# --- now send the email ---` splitting it into stages.
+
+**What good looks like:** each class has a short description that you can say out loud without "and". When the pricing rules change, you open exactly one file.
+
+**The question to ask:** *"Who would ask me to change this, and could two different people ask for conflicting changes?"*
+
+**A bad usage of SRP** (yes, it can be misused): splitting so aggressively that a single feature requires reading nine tiny files, each with one method. If every change still touches all nine files together, you did not separate responsibilities, you just spread one responsibility across a folder. Things that change together should live together.
+
+### Open/Closed
+
+**Smells of a violation:**
+
+- Long `if/elif` or `switch` chains on a "type" or "kind" string, repeated in several places.
+- Every new feature request begins with "find everywhere we check for X and add another case."
+- A function that imports a specific implementation of everything it might ever handle.
+
+**What good looks like:** adding a new variant means adding a new file or a new dictionary entry, and no existing tests need to change.
+
+In Python you often do not need a class hierarchy for this. A dictionary is frequently enough:
+
+```python
+TAX_RATES = {"BR": 0.17, "US": 0.07, "DE": 0.19}
+
+def tax_for(country):
+    return TAX_RATES[country]
+```
+
+Adding a country is one line in the table, and the function never changes. That is OCP with almost no ceremony.
+
+**The question to ask:** *"If the business asks for one more of these, how many existing lines do I have to edit?"* The ideal answer is zero.
+
+**A bad usage of OCP:** building a plugin architecture, a registry, and an abstract base class for something that has exactly two variants and will never have a third. You paid the complexity price for flexibility nobody asked for.
+
+### Liskov Substitution
+
+**Smells of a violation:**
+
+- A subclass that raises `NotImplementedError` (or any exception) for a method it inherited.
+- A subclass that overrides a method to do nothing, silently.
+- Code that checks `isinstance(x, SomeSubclass)` before calling a method, to avoid the "special" subtype.
+- A subclass that tightens what it accepts (rejects inputs the parent accepted) or loosens what it returns (returns `None` where the parent promised a value).
+
+**The classic textbook example** is the rectangle and the square. A `Square` seems like a `Rectangle` in math class. But if `Rectangle` promises that setting width does not change height, a `Square` that keeps both sides equal breaks that promise, and any code that resizes rectangles now gets surprising results. The signatures match. The behavior does not.
+
+**What good looks like:** you can write one test suite against the parent type and run it against every subtype, and it passes for all of them.
+
+**The question to ask:** *"Would any existing caller be surprised if I swapped this subtype in?"* If the answer is yes, that is not really an "is-a" relationship, no matter what the domain vocabulary says. Often the fix is to prefer composition over inheritance.
+
+**A bad usage of LSP:** honestly, it is hard to overuse LSP, because it is more of a correctness rule than a design style. The failure mode is the opposite one, ignoring it and using inheritance purely for code reuse.
+
+### Interface Segregation
+
+**Smells of a violation:**
+
+- Implementations full of methods that just `pass` or raise an error.
+- A test double or mock that has to stub fifteen methods when the code under test only calls one.
+- A class you depend on changes, and you have to recompile, redeploy, or retest even though you never used the part that changed.
+
+**What good looks like:** each client depends on the narrowest interface that meets its needs. In Python, that often means a small `Protocol` defined right next to the consumer.
+
+**The question to ask:** *"Does every implementer of this interface genuinely need every method on it?"*
+
+**A bad usage of ISP:** shattering everything into one-method interfaces until nobody can tell how the pieces relate, and a "simple" object implements eleven protocols. Cohesion matters. Methods that are always used together belong together.
+
+### Dependency Inversion
+
+**Smells of a violation:**
+
+- Business logic that instantiates its own database connection, HTTP client, or mail sender inside a method.
+- You cannot write a unit test without spinning up something real, like a database, a queue, or a network mock.
+- Import lines in your core domain code that name infrastructure libraries (`boto3`, `requests`, `sqlalchemy`).
+
+**What good looks like:** the core logic receives its collaborators from outside, usually through the constructor, and knows them only by the small abstraction it needs. Infrastructure code depends on the domain, not the other way around. (If this sounds familiar, it is the same idea behind the layered architecture I wrote about in [my Domain-Driven Design post](/blog/domain-driven-design-architecture-that-grows-with-your-business).)
+
+**The question to ask:** *"Can I test this logic without any real infrastructure?"*
+
+**A bad usage of DIP:** creating an interface for every class in the system, including ones with exactly one implementation that will never change, and wiring everything through a heavyweight dependency injection container. Your code now has twice as many files and the IDE's "go to definition" lands on an interface instead of the real code.
+
+A very Pythonic reminder: **passing a function as a parameter is already dependency inversion.** You do not always need a class and a protocol.
+
+## What happens when you overuse SOLID
+
+This is the section I wish someone had shown me in university. SOLID principles are **guidelines, not laws**. Applied dogmatically, they produce over-engineered code: interfaces everywhere, factories that build factories, and no real benefit. Here are the specific costs I have seen and read about.
+
+**Indirection cost.** Every abstraction is one more hop when reading code. "Where does this actually happen?" becomes a treasure hunt across five files. Reading code is most of what we do, so making it harder to follow is a real, permanent cost, and it is paid by everyone, every time.
+
+**Speculative abstraction.** OCP and DIP are only worth their price if the thing genuinely varies. An interface with exactly one implementation, forever, is pure overhead. It is a promise about a future that never arrived.
+
+**Wrong abstractions are expensive.** This one is subtle. When you guess early where a system will change, you often guess wrong. And an abstraction built around the wrong axis of change is worse than no abstraction, because every new requirement now has to be bent to fit it. Untangling a bad abstraction costs more than duplicating a little code would have. Sandi Metz put it memorably: *duplication is far cheaper than the wrong abstraction.*
+
+**Language matters.** SOLID was born in the era of statically typed, class-heavy languages like C++ and Java, where an interface was often the only way to get flexibility. In Python, functions are first-class values, duck typing means you do not have to declare interfaces at all, and a dictionary of callables is a perfectly good Open/Closed mechanism. Copying Java-flavored patterns into Python often adds ceremony with zero benefit.
+
+### A practical heuristic
+
+The rule of thumb I have adopted: **do not abstract on the first use.** Write the straightforward code. When the second variation appears, notice it. When the third one arrives, you now have real evidence about *what actually varies*, and you can cut along that seam with confidence. The principles tell you *how* to cut once you know where change happens. They do not tell you *whether* to cut. That judgment is yours, and it is informed by the pain of real changes, not imagined ones.
+
+## Exercise: SOLID as a diagnostic tool, not a checklist
+
+Reading about principles is passive. To check whether I could actually spot problems, I ran an exercise on myself. Here is the code, and I encourage you to try it before reading on. For each smell you find: (1) name it and where it is, (2) guess which principle it violates, or say "none, it is just a plain smell", and (3) say how you would fix it, or whether you would leave it alone. Leaving something alone is a valid answer.
+
+```python
+import boto3, smtplib, requests
+
+class InvoiceManager:
+    def create_invoice(self, customer, items, kind):
+        total = 0
+        for i in items:
+            total += i["price"] * i["qty"]
+
+        if customer["country"] == "BR":
+            total += total * 0.17
+        elif customer["country"] == "US":
+            total += total * 0.07
+        elif customer["country"] == "DE":
+            total += total * 0.19
+
+        table = boto3.resource("dynamodb").Table("invoices")
+        table.put_item(Item={"customer": customer["id"], "total": str(total)})
+
+        if kind == "pdf":
+            out = "PDF:" + str(total)
+        elif kind == "csv":
+            out = "csv," + str(total)
+        elif kind == "html":
+            out = "<p>" + str(total) + "</p>"
+
+        smtplib.SMTP("mail.softmedium.com").sendmail(
+            "billing@softmedium.com", customer["email"], out)
+        requests.post("https://hooks.slack.com/xyz",
+                      json={"text": "invoice " + str(total)})
+        return out
+
+class ReadOnlyInvoiceManager(InvoiceManager):
+    def create_invoice(self, *args):
+        raise Exception("read only")
+
+def monthly_report(items):
+    total = 0
+    for i in items:
+        total += i["price"] * i["qty"]
+    return total
+```
+
+### My attempt
+
+Here is what I came up with on the first pass:
+
+1. `create_invoice` has many responsibilities (email, and more): **Single Responsibility**.
+2. `InvoiceManager` depends on DynamoDB directly, so swapping databases is painful. Use a repository: **Dependency Inversion**.
+3. `ReadOnlyInvoiceManager` breaks the parent's contract: **Liskov Substitution**.
+4. `monthly_report` duplicates the subtotal loop at the start of `create_invoice`. I guessed this was the fourth principle, **Interface Segregation**.
+
+### What I got right
+
+**SRP was correct.** The method does pricing, tax, persistence, formatting, email, and Slack notification, all in one place. One warning, though: do not split it into six classes just because you can. Pull out tax, formatting, and persistence first, since those are the parts most likely to change. Leave the rest until change shows you where the seams are.
+
+**DIP was correct**, with a small correction to my reasoning. The bigger payoff is testing, not swapping databases. Right now you cannot test `create_invoice` without a real DynamoDB table, a real mail server, and a real Slack webhook. That, more than any hypothetical migration, is the reason to invert those dependencies.
+
+**LSP was correct.** The fix is refreshingly simple: do not inherit. A read-only manager should not be a subclass of something whose main job is writing. Either split reading and writing into separate types, or delete the class.
+
+### The one I got wrong
+
+Number four. The duplication is real, but it is **not** Interface Segregation. ISP is about clients being forced to depend on methods they do not use, and there is no fat interface anywhere in this code. What I found is a plain smell, usually called **DRY** (Don't Repeat Yourself), and the fix is small: extract a `subtotal(items)` function and call it from both places. No classes, no abstractions.
+
+I want to highlight this, because it is exactly the trap that makes SOLID feel slippery. When you are studying five named principles, you start wanting to match every smell to one of them, and the acronym becomes a lens that makes everything look like a nail. It is fine for a smell to be *just a smell*.
+
+### What I missed entirely
+
+**Open/Closed.** Both `if/elif` chains (country tax and output kind) mean a new country or a new format requires editing this function. In Python, the fix is a dictionary, not a class hierarchy:
+
+```python
+TAX_RATES = {"BR": 0.17, "US": 0.07, "DE": 0.19}
+FORMATTERS = {
+    "pdf": lambda total: f"PDF:{total}",
+    "csv": lambda total: f"csv,{total}",
+    "html": lambda total: f"<p>{total}</p>",
+}
+```
+
+**And a pile of plain smells that have nothing to do with SOLID:**
+
+- An unknown `kind` leaves `out` undefined, so the function crashes with a confusing error.
+- An unknown country silently gets no tax at all, which is worse than crashing.
+- Money is handled as floats and converted with `str()`. Use `Decimal` for currency.
+- The Slack URL and the mail host are hardcoded. Move them to configuration.
+- The database save happens before the email and Slack calls, so if the email fails, you have an invoice that is saved but never delivered.
+
+That last list is the most valuable part of the exercise. Some of the worst bugs in that snippet are ones SOLID has nothing to say about. The principles help you organize code, but they do not replace thinking about failure modes, data types, and configuration.
+
+### The takeaway
+
+Interface Segregation had **no place** in this code, and that is a good sign. Not every principle applies to every snippet. If you are using SOLID as a checklist, you will feel pressure to find five violations in everything you read. If you are using it as a **diagnostic tool**, you reach for the right principle when a specific symptom shows up, and you leave the others alone.
+
+## How to remember SOLID when someone asks
+
+Now for the original problem: the lunch table, the interviewer, the junior teammate who asks "wait, what is SOLID?". Here are the techniques I am going to use, and I suggest you steal whichever ones fit your brain.
+
+### 1. Lead with the problem, not the letters
+
+Do not start with "S is for Single Responsibility." Start with the *why*. My own 20-second answer now goes like this:
+
+> "SOLID is five design principles for keeping code easy to change as it grows. They all answer one question: how do I stop a change in one place from breaking things somewhere else? Software tends to rot, where small changes become risky and slow, and these principles are about managing the dependencies that cause it."
+
+That single paragraph makes you sound like you understand the topic, because you do. Then, if they want details, you can walk the letters.
+
+### 2. Use one key phrase per letter
+
+Compress each principle to a short handle that you can recall under pressure:
+
+| Letter | Handle | Meaning in five words |
+|---|---|---|
+| **S** | *One reason to change* | Each piece answers to one actor |
+| **O** | *Extend, don't edit* | New behavior means new code |
+| **L** | *No surprises* | Subtypes keep their promises |
+| **I** | *Small menus* | Depend only on what you use |
+| **D** | *Depend on abstractions* | Core logic ignores the details |
+
+If you only remember the handles, you can rebuild the rest of the explanation on the fly.
+
+### 3. Attach each letter to a symptom
+
+This is my favorite, because it ties back to how you find these problems in real code:
+
+- **S**: "This file keeps getting merge conflicts."
+- **O**: "Adding one more case means editing this huge if/elif."
+- **L**: "This subclass throws an error for something its parent can do."
+- **I**: "This class implements a bunch of methods it doesn't need."
+- **D**: "I can't test this without a real database."
+
+When you review code, listen for those phrases in your own head. Each one is a trigger that points to a letter.
+
+### 4. Remember the flow, not the list
+
+Recall the order in which the worked example unfolded, since the steps feed each other. **SRP** creates the pieces. **OCP** makes one piece extensible. **LSP** and **ISP** make sure the pieces fit together honestly and stay small. **DIP** wires them loosely together at the end. If you can tell that story, the letters come with it.
+
+### 5. A restaurant analogy
+
+If someone asks for an analogy, a kitchen works surprisingly well:
+
+- **S:** the chef cooks, the cashier takes payment, the dishwasher cleans. Nobody does all three.
+- **O:** adding a new dish to the menu should not require rebuilding the kitchen.
+- **L:** if the head chef is out, any substitute chef should be able to run the line without the waiters noticing a difference.
+- **I:** the dessert cook should not be handed the grill's full list of procedures.
+- **D:** the restaurant depends on "a supplier of fresh fish", not on one specific fisherman. You can change suppliers without changing the menu.
+
+It is cheesy, but analogies are sticky, and cheesy is a feature when your goal is memory.
+
+### 6. Say the caveat out loud
+
+The fastest way to signal real understanding, in an interview or in a team discussion, is to add the tradeoff: "and these are guidelines, not laws. Every abstraction has a cost, so I wait for the second or third real variation before I introduce one." That one sentence separates someone who memorized the acronym from someone who has been burned by over-engineering.
+
+## Final thoughts
+
+I started this post admitting that I could apply SOLID but could not explain it. Writing it changed that, and the lesson is bigger than the acronym. I never retained SOLID in school because I learned it as a list of five definitions to memorize. What finally made it stick was learning the *story*: software rots, the rot comes from tangled dependencies, and each letter is a different tool for untangling them.
+
+If you take one thing from this post, let it be the question that ties the five together: **"How do I stop a change here from rippling over there?"** When you can ask that question while reading a pull request, you do not need the acronym. And when someone finally asks you, "so, what is SOLID?", you will have a story to tell instead of a mumble.
+
+If your own experience with these principles differs from mine, especially if you have a favorite example of an abstraction that saved you or one that made a mess, I would like to hear about it.
+
+### Further Reading
+
+- Robert C. Martin, [*Design Principles and Design Patterns*](https://web.archive.org/web/20150906155800/http://www.objectmentor.com/resources/articles/Principles_and_Patterns.pdf) (2000)
+- Robert C. Martin, *Agile Software Development: Principles, Patterns, and Practices* (Prentice Hall, 2002)
+- Robert C. Martin, *Clean Architecture* (Prentice Hall, 2017)
+- Bertrand Meyer, *Object-Oriented Software Construction* (Prentice Hall, 1988)
+- Barbara Liskov and Jeannette Wing, [*A Behavioral Notion of Subtyping*](https://www.cs.cmu.edu/~wing/publications/LiskovWing94.pdf) (1994)
+- [Sandi Metz, "The Wrong Abstraction"](https://sandimetz.com/blog/2016/1/20/the-wrong-abstraction)
+- [Robert C. Martin, "The Single Responsibility Principle"](https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html)
