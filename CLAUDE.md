@@ -84,3 +84,26 @@ tests) will be wrong otherwise.
 
 Never use em dashes in article content (`content/*.mdx`) or in
 documentation files. Use a comma instead, or rephrase the sentence.
+
+# Writing Articles
+
+Process that worked for a long-form post (SOLID, PR #60):
+
+1. **Match the house style first.** Read the frontmatter of an existing post in
+   `content/` (title, description, author, date, published, tags). Internal
+   links use `/blog/<slug>`. Each post ends with a "### Further Reading" list.
+2. **Hit the length target by words.** Reading time uses 238 wpm
+   (`app/[slug]/page.tsx`), so N minutes needs about N x 238 words. Aim ~20%
+   over. Check with `npm run dev` and look for "N min read" on
+   `/blog/<slug>/`.
+3. **Write in the author's first person, but never invent biography.** Use
+   only what the author said about themselves, and use hypotheticals
+   ("picture a...") for anything else. Flag this in the hand-off so they can
+   add a real story.
+4. **No em dashes** in articles or docs (see Writing Style above).
+5. **Fact-check everything not in the author's source notes** (dates, names,
+   quotes, links) before pushing. Use searches, cite sources, and list what
+   could not be verified. Avoid unverifiable archive links; prefer stable ones
+   (ACM DOI, publisher pages).
+6. **Validate before pushing:** `npx velite`, `npm run lint`, and confirm the
+   page renders. Commit only the content file.
