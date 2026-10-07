@@ -18,8 +18,6 @@ Quick vocabulary fix first, because I have seen these names mixed up often. The 
 3. **Server-Sent Events**, usually shortened to **SSE**
 4. **WebSockets**
 
-Notice that "webhooks" is not on that list. Webhooks solve a related but different problem (server to server notifications), and I will come back to them near the end so the confusion stops here.
-
 ## 1. Polling: asking again and again
 
 This is the first thing anyone builds, and there is no inventor to credit, because it is just plain HTTP used the only way it allows. The client asks, the server answers, and to get fresh data the client asks again on a timer.
@@ -178,12 +176,6 @@ A persistent two-way connection is more capable, and also more work to operate:
 - **Authentication is awkward.** The browser WebSocket API does not let you set custom headers, so tokens often travel in the URL or in the first message.
 - **Not everything is a plain HTTP request anymore.** Your usual HTTP tools, caching and middleware do not apply the same way.
 
-## 5. And webhooks?
-
-A **webhook** is a different animal. It is not about keeping a browser up to date. It is one server telling another that something happened, by sending an ordinary HTTP `POST` to a URL the other side registered in advance. "When a payment succeeds, POST the details to `https://shop.example.com/hooks/payment`."
-
-The term was coined by **Jeff Lindsay in 2007**, from the programming idea of a *hook*, a place where you plug in your own code. Webhooks replace polling between *servers* (you do not call Stripe every minute asking if a payment is done, Stripe calls you), but they do not help a browser, because a browser has no public URL to receive a POST on. They live in the same family of ideas as event-driven architecture, which I covered in [Event-Driven Architecture: Designing an Order Fulfillment System from First Principles](/blog/event-driven-architecture-from-first-principles).
-
 ## Side by side
 
 | | Polling | Long polling | SSE | WebSockets |
@@ -206,7 +198,6 @@ My rule of thumb, which you can bend as you like:
 - **You need near real time, you control the server, and you cannot use anything newer?** Long polling works, and it is the fallback behind many libraries.
 - **The server pushes, the client mostly listens?** Notifications, live scores, dashboards, build logs, streamed AI responses. Start with **SSE**. You get reconnection and resume for free.
 - **Both sides talk often and latency matters?** Chat, multiplayer games, collaborative editing. Use **WebSockets**, and accept the operational cost.
-- **A backend needs to react to an event in another service?** That is a **webhook**, not a browser technique at all.
 
 The honest pattern in the industry is to start with the simplest option that meets the requirement and move up only when a real problem forces you to. Plenty of products run happily on SSE or even plain polling, and plenty of "we need WebSockets" projects turn out not to.
 
