@@ -232,7 +232,7 @@ The common thread is a trade. Tether gives up flexibility (one action channel, a
 
 ## What Tether is still missing
 
-Tether is at `v0.0.3`, and I would be lying if I said it was done. These are the gaps I feel most, and what I expect from each. They are plans and opinions, not promises with dates.
+As of today, Tether is not done, and I would be lying if I said it was. These are the gaps I feel most, and what I expect from each. They are plans and opinions, not promises with dates.
 
 **1. MCP support, without the schema tax.** Today Tether talks to the world through its built-in toolbox and your own `@tool` functions. A lot of useful integrations already ship as MCP servers, and I want them. But the usual way of plugging MCP into a harness is exactly the thing that started this project: every server dumps its full tool list and JSON schemas into the prompt up front. The version I want keeps the `act(cmd, stdin)` rule. An MCP server would show up as one line in the toolbox index (`github : Issues and pull requests`), and its tools would be discovered just in time, with `github --help` and `github issue create --help`, like any other command. The protocol stays on the outside of the envelope and the model never sees a schema it did not ask for. The hard part is the discovery step: a server with 80 tools needs a good `--help` hierarchy, or I have rebuilt the problem one level down.
 
