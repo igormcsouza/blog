@@ -230,6 +230,20 @@ Read these numbers with the right amount of salt. It is two trials on one task f
 
 The common thread is a trade. Tether gives up flexibility (one action channel, a deliberately small toolbox) to buy predictability, cheapness and small-model viability.
 
+## What Tether is still missing
+
+Tether is at `v0.0.3`, and I would be lying if I said it was done. These are the gaps I feel most, and what I expect from each. They are plans and opinions, not promises with dates.
+
+**1. MCP support, without the schema tax.** Today Tether talks to the world through its built-in toolbox and your own `@tool` functions. A lot of useful integrations already ship as MCP servers, and I want them. But the usual way of plugging MCP into a harness is exactly the thing that started this project: every server dumps its full tool list and JSON schemas into the prompt up front. The version I want keeps the `act(cmd, stdin)` rule. An MCP server would show up as one line in the toolbox index (`github : Issues and pull requests`), and its tools would be discovered just in time, with `github --help` and `github issue create --help`, like any other command. The protocol stays on the outside of the envelope and the model never sees a schema it did not ask for. The hard part is the discovery step: a server with 80 tools needs a good `--help` hierarchy, or I have rebuilt the problem one level down.
+
+**2. Remote and shared control.** Headless sessions are already rows in SQLite and `tether send` can steer one, but only from the machine that owns the database. I want to attach to a session from somewhere else: watch its steps stream live from my phone, send a nudge, or let a teammate look at the same run. That probably means a small authenticated server in front of the same inbox, and it raises real questions I have not answered yet: who is allowed to steer, how a shared session handles two people typing at once, and how to keep the sandbox guarantees when the control surface leaves localhost. I would rather ship it slowly than ship a remote shell for an LLM carelessly.
+
+**3. Replay and evaluation.** My benchmark is two trials on one task family. That is a start, not evidence. Every Tether turn is already persisted, so the missing piece is a way to replay a recorded session against a different model or a changed prompt, and to score the outcome. That would turn "it felt cheaper" into a regression test: run the same twenty tasks on `gemma4:e4b` and on Sonnet every time I touch the context folding rules, and see exactly what moved in tokens, steps and success rate.
+
+**4. Approval gates and permission policies.** The sandbox is deterministic, but it is mostly all-or-nothing today. I want per-command policies in the envelope: this session may `web fetch` freely, may `edit write` only under `docs/`, and must pause and wait for a human before any `bash` that is not on an allowlist. A paused session would just be another state in SQLite, waiting in the inbox for a `tether send`. It is the same philosophy as the rest of the project: do not ask the model to be careful, make carefulness a property of the envelope.
+
+If I had to pick the order, it would be replay first (so I can trust every later change), then MCP, then approvals, then remote control, because remote control multiplies the risk of everything before it.
+
 ## What I would take away from this
 
 The lesson was not "Claude Code is bad." It is a capable general-purpose product, and for open-ended work in a big codebase its breadth earns its cost. The lesson is that **the harness is part of your cost and reliability budget**, and most of us never look at it. Count the tokens your agent spends before it reads your task. Ask whether the model needs 20 schemas or one command line. Treat the context window as a cache with an eviction policy, not a log file.
