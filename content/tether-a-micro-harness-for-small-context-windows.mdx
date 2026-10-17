@@ -143,6 +143,41 @@ $ tether query ses_8f92a1 "open-weight benchmarks"
 
 Inside a session, a parent agent can do the same thing to children with `agent spawn`, `agent wait` and `agent query`. `agent wait` returns a digest of about 50 tokens (status, chunk count, a preview) instead of dumping 15,000 tokens of child output into the parent's prompt. When the parent needs details, `agent query` runs BM25 over the child's deliverable *and* its raw observations and returns the top few snippets. Child agents inherit the parent's sandbox profile or a narrower one, never a wider one.
 
+Put together, the moving parts look like this:
+
+<Mermaid chart={`flowchart LR
+    subgraph Client["CLI or Python SDK"]
+        Headless["tether run --headless\ntether send / status / read"]
+    end
+
+    subgraph DB["SQLite WAL + FTS5 (.tether/tether.db)"]
+        Sessions["sessions | inbox | turns | observations | chunks_fts (BM25)"]
+    end
+
+    subgraph Worker["Detached session worker"]
+        Loop["Bounded agent loop"]
+        Mux["act(cmd, stdin?) multiplexer"]
+        Sandbox["Sandbox\n(bwrap + workspace jail)"]
+        Folder["Observation folder\n+ FTS5 chunk indexer"]
+    end
+
+    subgraph Tools["Opt-in capabilities"]
+        Builtins["bash | web | edit | mem | skill | agent | done"]
+        Custom["@tool functions"]
+    end
+
+    Headless <--> DB
+    DB <--> Loop
+    Loop --> Mux
+    Mux --> Sandbox
+    Sandbox --> Builtins
+    Sandbox --> Custom
+    Builtins --> Folder
+    Custom --> Folder
+    Folder --> DB
+    Folder --> Loop
+`} />
+
 ## The Python SDK
 
 Tools are plain typed functions. The decorator introspects the signature and builds both the POSIX-style parser and the compact `--help` text, so the model never sees a JSON schema for it.
@@ -204,6 +239,22 @@ Talk is cheap, so here is the test that mattered to me. I gave three setups the 
 | **Tether + Claude Sonnet** | `claude-sonnet` | 2 | **5,318** | **48.7s** | **39.7x fewer tokens** (97.5% reduction) |
 | **Claude Code CLI** | `claude-sonnet` | 5 | **211,355** | **97.4s** | 1.0x baseline |
 
+Here is the same data as bars. Linear scale, no tricks: the Tether bars are small because they really are that small.
+
+<Mermaid chart={`xychart-beta
+    title "Total tokens per video (lower is better)"
+    x-axis ["Tether + gemma4:e4b", "Tether + Sonnet", "Claude Code + Sonnet"]
+    y-axis "Total tokens" 0 --> 220000
+    bar [3073, 5318, 211355]
+`} />
+
+<Mermaid chart={`xychart-beta
+    title "Wall-clock seconds per video (lower is better)"
+    x-axis ["Tether + Sonnet", "Tether + gemma4:e4b", "Claude Code + Sonnet"]
+    y-axis "Seconds (including Manim, EdgeTTS and FFmpeg)" 0 --> 110
+    bar [48.7, 53.1, 97.4]
+`} />
+
 Look at the middle row against the last one. It is the *same frontier model*. The only variable is the harness. Tether needed 2 steps instead of 5, and cut tokens from 211,355 to 5,318. A large part of that gap is the roughly 41,000 tokens of framing that Claude Code re-sends each turn, versus a static prefix plus the skill that stays under about 400 tokens in Tether. And since most of the wall-clock time in Tether went to Manim and EdgeTTS actually rendering (around 43 seconds), the time saved was mostly the model not re-reading an enormous prompt.
 
 The first row is the one that made me happiest. A 9B-class model on a laptop GPU produced the whole four-scene spec on turn 1 and called `done` on turn 2, for zero dollars.
@@ -215,6 +266,13 @@ That task had a pre-packaged render tool, which flatters any harness. So I also 
 | Tether + `gemma4:e4b` (local 8B) | 9 | 2,440 | 13,420 | 150.7s |
 | Tether + `claude-sonnet` | 7 | 2,764 | 15,180 | 138.8s |
 | Claude Code + `claude-sonnet` | 13 | ~24,900 | 256,829 | 254.6s |
+
+<Mermaid chart={`xychart-beta
+    title "Open-ended run: cumulative tokens (lower is better)"
+    x-axis ["Tether + gemma4:e4b", "Tether + Sonnet", "Claude Code + Sonnet"]
+    y-axis "Cumulative tokens" 0 --> 270000
+    bar [13420, 15180, 256829]
+`} />
 
 On the same frontier model, that is **94.1% fewer tokens** and **45% faster**. In the local run, `gemma4:e4b` even hit a Manim `ShowCreation` deprecation error, read the self-healing feedback, switched to `Create`, and carried on. That is exactly the ACI behavior the SWE-agent paper argues for.
 
