@@ -1,6 +1,6 @@
 ---
-title: "Tether: Why I Built a Micro-Harness After Claude Code Burned 200,000 Tokens on One Task"
-description: The story of Tether, a headless-first Python micro-harness for LLM agents. One tool schema, 150 tokens of framing, SQLite memory, and a head-to-head benchmark against Claude Code on the same model.
+title: "Tether: Why I Built a Micro-Harness After Claude Code Spent Millions of Tokens on Every Video"
+description: How a local 9B pipeline that made a bad video led me to Claude Code, then to a 10 to 37 million token bill per video, and finally to Tether, a headless-first Python micro-harness with one tool schema and 150 tokens of framing.
 author: Igor Souza
 date: 2026-10-17
 published: true
@@ -11,13 +11,35 @@ I did not set out to build an agent harness. I set out to make YouTube videos, a
 
 This post is the story of that detour: the pain that started it, the design of the thing I ended up with (**Tether**, `pip install tether-sdk`), the research behind each decision, and the numbers from a head-to-head run against Claude Code on the exact same model. I will also be candid about where Tether is the wrong tool.
 
-## The pain: a hidden tax inside `ai-studio`
+## The pain: from my own pipeline to a hidden token tax
 
-In my `ai-studio` project I was building an autonomous content pipeline. It researches trending topics, generates a four-scene vertical (1080x1920) animation with Manim, synthesizes a voiceover with EdgeTTS, and muxes and concatenates everything with FFmpeg.
+### Attempt one: `ai-studio`, a pipeline of my own
 
-My first attempts were custom agent loops. Then I leaned on **Claude Code** (the `claude` CLI) as the harness to orchestrate the whole workflow. It worked. But I started looking at the usage numbers and they were uncomfortable. Even for a fairly straightforward multi-step task, a run cost **200,000+ cumulative tokens** and took somewhere between 100 and 250 seconds. The reason is not mysterious once you see it: on **every single turn**, the harness re-sends its system prompt and a pile of JSON tool schemas, roughly **41,000 tokens** of framing before my actual task gets a single token of attention.
+`ai-studio` is a documentary-video pipeline I started building in late September. A LangGraph graph takes a project from topic research to a rendered, packaged video, with Postgres, Celery and RabbitMQ underneath and a small Next.js frontend. The part I cared about most was the model: I wanted it all to run on a **local `qwen3.5:9b`** through Ollama, on the 8 GB GPU of my laptop. Zero marginal cost was the whole point. My own decision log says it plainly: "zero marginal cost, proven in lore, fits the hardware," and "lower quality ceiling than frontier models" as the price.
 
-On a frontier model with a big context window and prompt caching, that is a cost problem. On a small local model, it is a *viability* problem. I tried pointing standard agent harnesses at Small Language Models like `ollama/qwen3.5:9b` and `ollama/gemma4:e4b` running on the 6 GB VRAM GPU of my laptop. They collapsed. The model was drowned in thousands of tokens of JSON schemas before it could emit one token of business logic.
+It did not go well. The log has an entry I titled "The last video was bad". The script was full of filler sentences, never answered the question in the video title, and the video took about a week to make. I had put an LLM draft at every stage and a human approval gate after each one, and the approvals carried no signal: by the end my review was just "go go go". Around the same time I wrote a research note on multi-agent designs with a 9B model, and its conclusion was to keep one call per stage and avoid delegation, because every extra hop is another place for a small model to fail.
+
+### Attempt two: Claude Code as the harness
+
+So I changed approach. For my Portuguese channel, *Calma, dev!*, I stopped building the pipeline in code and let **Claude Code** drive the work through a `make-long-video` skill: research the topic, write the script, narrate it, build the scenes, render and package. Each video is 5 to 8 minutes, split across a main agent and sub-agents for research, scenes and QA.
+
+It was a **big improvement** over my own pipeline harness. The videos actually came out. Claude Code is good at exactly the thing my hand-built graph was bad at: staying coherent across a long, messy, tool-heavy task.
+
+Then I opened the token logs that the skill writes next to each video:
+
+| Video (long-form, pt-BR) | Model calls | Total tokens | Fresh tokens (not cache reads) |
+|---|---|---|---|
+| Engenharia reversa com IA | 129 | 10.1M | 0.6M |
+| Opencode 2, largar Claude Code | 142 | 14.8M | 0.9M |
+| Agente com amnesia | 176 | 18.1M | 1.1M |
+| PS2 recomp, PS2 em C++ | 265 | 24.4M | 1.2M |
+| Senha 123456 vazou um pais | 283 | 37.0M | 2.3M |
+
+Five videos, between **10 and 37 million tokens each**. To be fair about it: about 94% of those tokens are cache reads, which providers bill at a fraction of the normal input price, and I am not going to pretend the sticker total is the bill. But the shape is the problem. The harness re-sends its large system prompt and its tool schemas on every one of those hundreds of calls, and every call pays attention to them, cached or not.
+
+The tradeoff I had accepted without noticing was this: **I was now paying for a frontier model to do work that a 9B model could do most of.** Picking a topic, summarizing a page, drafting a scene description, writing a render command. Those are small, well-scoped steps. They did not need a frontier model. They needed a harness that stayed out of the model's way.
+
+And that is where it hurt. When I pointed standard agent harnesses at small local models like `ollama/qwen3.5:9b` or `ollama/gemma4:e4b` on that laptop GPU, they collapsed. The model was drowned in thousands of tokens of JSON schemas and instructions before it could emit a single token of business logic. Small model, big harness: the combination I wanted was the one that did not exist.
 
 <Callout icon="💡" type="informative">
 A **harness** is the code around the model: the loop that calls it, parses its actions, runs tools, feeds observations back, and decides when to stop. The model is the engine, the harness is everything else.
@@ -174,7 +196,7 @@ The three built-in adapters (`ollama/`, `openai/`, `anthropic/`) are thin `httpx
 
 ## The benchmark: same task, same model, different harness
 
-Talk is cheap, so here is the test that mattered to me. I gave three setups the same real task, using a `shorts-maker` skill: produce a complete four-scene, 1080x1920 vertical YouTube Short with Manim animations, EdgeTTS voiceover, subtitles and FFmpeg muxing. These are averages over 2 trials per setup.
+Talk is cheap, so here is the test that mattered to me. I gave three setups the same real task. A full long-form video is too big to repeat cleanly, so I picked a smaller cousin of it, using a `shorts-maker` skill: produce a complete four-scene, 1080x1920 vertical YouTube Short with Manim animations, EdgeTTS voiceover, subtitles and FFmpeg muxing. These are averages over 2 trials per setup.
 
 | Configuration | Model | Steps | Total tokens | Wall-clock | vs. Claude Code |
 |---|---|---|---|---|---|
