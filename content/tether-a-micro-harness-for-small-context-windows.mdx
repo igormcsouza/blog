@@ -1,0 +1,319 @@
+---
+title: "Tether: Why I Built a Micro-Harness After Claude Code Spent Millions of Tokens on Every Video"
+description: How a local 9B pipeline that made a bad video led me to Claude Code, then to a 10 to 37 million token bill per video, and finally to Tether, a headless-first Python micro-harness with one tool schema and 150 tokens of framing.
+author: Igor Souza
+date: 2026-10-17
+published: true
+tags: ["llm", "agents", "python", "architecture", "ai"]
+---
+
+I did not set out to build an agent harness. I set out to make YouTube videos, and the harness was the thing that kept getting in my way.
+
+This post is the story of that detour: the pain that started it, the design of the thing I ended up with (**Tether**, `pip install tether-sdk`), the research behind each decision, and the numbers from a head-to-head run against Claude Code on the exact same model. I will also be candid about where Tether is the wrong tool.
+
+## The pain: from my own pipeline to a hidden token tax
+
+### Attempt one: `ai-studio`, a pipeline of my own
+
+`ai-studio` is a documentary-video pipeline I started building in late September. A LangGraph graph takes a project from topic research to a rendered, packaged video, with Postgres, Celery and RabbitMQ underneath and a small Next.js frontend. The part I cared about most was the model: I wanted it all to run on a **local `qwen3.5:9b`** through Ollama, on the 8 GB GPU of my laptop. What I wanted was zero marginal cost, a setup already proven in `lore` (another LLM-native project of mine), and a model that fits the hardware. The price I accepted was a lower quality ceiling than frontier models.
+
+It did not go well. The last video that pipeline produced was bad. The script was full of filler sentences, never answered the question in the video title, and the video took about a week to make. I had put an LLM draft at every stage and a human approval gate after each one, and the approvals carried no signal: by the end my review was just "go go go". Around the same time I researched multi-agent designs for a 9B model, and concluded I should keep one call per stage and avoid delegation, because every extra hop is another place for a small model to fail.
+
+### Attempt two: Claude Code as the harness
+
+So I changed approach. For my Portuguese channel, *Calma, dev!*, I stopped building the pipeline in code and let **Claude Code** drive the work through a `make-long-video` skill: research the topic, write the script, narrate it, build the scenes, render and package. Each video is 5 to 8 minutes, split across a main agent and sub-agents for research, scenes and QA.
+
+It was a **big improvement** over my own pipeline harness. The videos actually came out. Claude Code is good at exactly the thing my hand-built graph was bad at: staying coherent across a long, messy, tool-heavy task.
+
+Then I opened the token logs that the skill writes next to each video:
+
+| Video (long-form, pt-BR) | Model calls | Total tokens | Fresh tokens (not cache reads) |
+|---|---|---|---|
+| Engenharia reversa com IA | 129 | 10.1M | 0.6M |
+| Opencode 2, largar Claude Code | 142 | 14.8M | 0.9M |
+| Agente com amnesia | 176 | 18.1M | 1.1M |
+| PS2 recomp, PS2 em C++ | 265 | 24.4M | 1.2M |
+| Senha 123456 vazou um pais | 283 | 37.0M | 2.3M |
+
+Five videos, between **10 and 37 million tokens each**. To be fair about it: about 94% of those tokens are cache reads, which providers bill at a fraction of the normal input price, and I am not going to pretend the sticker total is the bill. But the shape is the problem. The harness re-sends its large system prompt and its tool schemas on every one of those hundreds of calls, and every call pays attention to them, cached or not.
+
+The tradeoff I had accepted without noticing was this: **I was now paying for a frontier model to do work that a 9B model could do most of.** Picking a topic, summarizing a page, drafting a scene description, writing a render command. Those are small, well-scoped steps. They did not need a frontier model. They needed a harness that stayed out of the model's way.
+
+And that is where it hurt. When I pointed standard agent harnesses at small local models like `ollama/qwen3.5:9b` or `ollama/gemma4:e4b` on that laptop GPU, they collapsed. The model was drowned in thousands of tokens of JSON schemas and instructions before it could emit a single token of business logic. Small model, big harness: the combination I wanted was the one that did not exist.
+
+<Callout icon="💡" type="informative">
+A **harness** is the code around the model: the loop that calls it, parses its actions, runs tools, feeds observations back, and decides when to stop. The model is the engine, the harness is everything else.
+</Callout>
+
+That led to the question that became the project:
+
+> What if I built a lightweight, general-purpose micro-harness of my own, one that loads **zero optional tools by default**, keeps the fixed framing overhead **under 150 tokens**, and treats the context window like an **L1 CPU cache** instead of an append-only garbage dump?
+
+That is Tether. The name is literal: it ties the model, the tools, the skills and the sub-agents together with as little slack as possible.
+
+## Four classic harness failures, and how Tether answers each
+
+I did not want to design this from vibes. For each failure mode I had hit, I looked for the research that explained *why* it happens, and let it constrain the design. Here are the four.
+
+### Problem 1: tool schema bloat and JSON hallucinations
+
+Most harnesses register 15 to 30 separate tools: `read_file`, `write_file`, `bash`, `web_search`, and so on. Each one ships a JSON schema to the model on every turn. Small models are bad at this. Faced with 20+ schemas, an 8B or 9B model will pick the wrong tool, invent nested keys, or botch the escaping of a multi-line string inside a JSON value.
+
+The paper that reframed this for me is **CodeAct** by Wang et al. ([*Executable Code Actions Elicit Better LLM Agents*](https://arxiv.org/abs/2402.01030), ICML 2024). They consolidate the agent's fragmented action formats into a **single unified action space** (executable Python) and analyze 17 LLMs. Their headline result is up to a 20% higher success rate than the usual JSON or text action formats, with fewer turns needed because one action can compose several operations.
+
+One honest note: CodeAct unifies actions as *Python*, and Tether unifies them as a *POSIX-style command line*. I am borrowing the principle (one channel beats many rigid schemas), not claiming the paper measured my exact design.
+
+So the model in Tether sees exactly **one JSON tool schema, ever**:
+
+```python
+act(cmd: str, stdin: str | None = None)
+```
+
+Everything is a command routed through that one primitive: `web search ...`, `edit write notes.md`, `mem pin plan "..."`. Multi-line payloads such as file contents, patches, Python scripts and the final Markdown report go through `stdin`, not through `cmd`. That one decision removes the worst source of small-model failures, which is shell quoting and JSON escaping inside a single string.
+
+### Problem 2: upfront documentation walls
+
+Even with one entry point, you can still blow the budget by explaining every command up front. This is the problem the **SWE-agent** paper by Yang et al. ([*Agent-Computer Interfaces Enable Automated Software Engineering*](https://arxiv.org/abs/2405.15793), NeurIPS 2024) tackles. Their argument is that language model agents are a new kind of end user, and they do much better with interfaces *designed for them* (compact commands, concise feedback, guardrails against mistakes) than with raw shell access built for humans. They call these interfaces **Agent-Computer Interfaces (ACIs)**.
+
+Tether applies that in three ways:
+
+- **Zero tools by default.** The only thing always on is `done`. Everything else is opt-in with `--tools web,bash,edit,mem,agent` or your own `@tool` functions.
+- **One line per tool.** The system prompt carries a toolbox index of roughly 12 tokens per tool, like `web : Search the web or fetch URL as markdown`.
+- **Just-in-time usage.** Full parameter docs (about 60 tokens) are revealed only when the model runs `<cmd> --help` or gets a command wrong. A syntax error returns a self-healing usage hint rather than an unhandled exception.
+
+The whole fixed prefix, base prompt plus the `act` schema plus the `done` index, stays under 150 tokens. You pay for documentation only for the commands the model actually needs.
+
+### Problem 3: context window blowup
+
+Agent transcripts are append-only by default. Every fetched web page, every stack trace, every file dump stays in the prompt forever, and you pay for it again on every following turn. This is the problem that **MemGPT** by Packer et al. ([*Towards LLMs as Operating Systems*](https://arxiv.org/abs/2310.08560), 2023) addresses with an operating-system analogy: the limited prompt is fast "main memory," and a larger external store is "disk," with the model paging data between them.
+
+Tether takes that analogy literally. The prompt is **L1**, a small working set. The **L2** store is SQLite in WAL mode at `.tether/tether.db`, with an FTS5 full-text index ranked by BM25. Three mechanisms connect them:
+
+1. **Head + tail elision.** Even for fresh observations, if a tool returns more than 2,400 characters, Tether keeps the first 900 (headers, the command summary) and the last 900 (the stack trace, the exit code) and drops the noisy middle, leaving a pointer to `mem recall <obs_id>`. The two ends are where the signal usually lives.
+2. **Ephemeral folding.** After `K = 2` turns, a raw observation deterministically collapses into a one-line tombstone:
+
+   ```text
+   [obs_1 folded: web fetch https://... (3,420 chars) | use mem recall obs_1 or mem search <query>]
+   ```
+
+3. **Zero-config BM25 retrieval.** Every observation and every sub-agent deliverable is chunked (about 150 tokens per chunk) and indexed in `chunks_fts`. `mem search` and `agent query` pull back only the relevant chunks. There is no vector database, no embedding API, no extra service. For the exact-keyword lookups an agent mostly does ("what was that rate limit?"), BM25 inside SQLite is fast and good enough, and it is one file on disk.
+
+The model can always get the full text back. It just has to ask, instead of carrying it around.
+
+### Problem 4: drift, loops and security
+
+The last failure mode is the one that actually keeps me up at night. LLMs are probabilistic, and a harness that trusts the model to police itself ("please be careful, please stop when done") is building on sand. The framing I use for this, *probabilistic core, deterministic envelope*, is my own shorthand, not a quote. What it builds on is Maia et al. (2026), [*LLM-Native Applications as a Paradigm for AI-Driven Software Architecture*](https://papers.ssrn.com/abstract=6799068). They argue that LLM-native systems have non-deterministic control flow, so the architecture needs runtime assurance mechanisms such as output validation and access control around the model. Two caveats: it is an SSRN preprint that has not been peer reviewed, and it is a conceptual taxonomy, not an experiment. It motivates the stance, it does not prove my particular mechanisms work.
+
+The model is the reasoning kernel. Everything around it is deterministic code:
+
+- **Explicit `done`.** Small models love to think out loud in plain text before acting. Tether never ends a session on a plain-text reply. It nudges the model until it calls `act("done", stdin="...")`, so completion is an action, not a guess.
+- **Loop-stall breaker.** If the model repeats the exact same `(cmd, stdin)` back to back, the harness intercepts it *before* running the subprocess and returns a `[LOOP DETECTED]` recovery nudge. Cheap, deterministic, and it saves real money.
+- **KV-cache prefix immutability.** The system prompt and tool array never change mid-session. `[PINNED MEMORY]` is attached to the tail message after window trimming, so earlier messages stay byte-identical. That is what lets Ollama, llama.cpp, vLLM and Anthropic's ephemeral caching reuse the prefix instead of recomputing it. Mutating the tools array between turns is a classic way to silently destroy cache hits.
+- **Kernel-level sandbox.** `sandbox.py` canonicalizes every path with `Path.resolve()` and confines it to the workspace root. It blocks writes to `.env*`, `.git/config` and `.tether/`, scrubs secrets like `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `AWS_*` from the subprocess environment, and wraps `bash` in Linux Bubblewrap (`bwrap`) namespaces when available.
+
+None of those depend on the model behaving well. That is the point.
+
+## Headless first
+
+The other big decision: a Tether session is not a chat window, it is a **row in SQLite**. That makes everything below almost free.
+
+```bash
+pip install tether-sdk
+# or
+uv add tether-sdk
+```
+
+```bash
+# Start a detached background worker
+$ tether run --headless --skill researcher "What are the latest news about AI?"
+ses_8f92a1
+
+# Peek at it while it runs
+$ tether status ses_8f92a1
+ID          STATUS     MODEL              STEP   CTX_TOKENS   LAST_CMD
+ses_8f92a1  RUNNING    ollama/qwen3.5:9b  3/15   580/8192     web search "AI news 2026"
+
+# Steer it live: queued into the inbox if RUNNING, auto-resumed if COMPLETED
+$ tether send ses_8f92a1 --headless "Now fact-check the top 2 announcements."
+
+# Block until done, then pull only what matters via BM25
+$ tether wait ses_8f92a1
+$ tether query ses_8f92a1 "open-weight benchmarks"
+```
+
+Inside a session, a parent agent can do the same thing to children with `agent spawn`, `agent wait` and `agent query`. `agent wait` returns a digest of about 50 tokens (status, chunk count, a preview) instead of dumping 15,000 tokens of child output into the parent's prompt. When the parent needs details, `agent query` runs BM25 over the child's deliverable *and* its raw observations and returns the top few snippets. Child agents inherit the parent's sandbox profile or a narrower one, never a wider one.
+
+Put together, the moving parts look like this:
+
+<Mermaid chart={`flowchart LR
+    subgraph Client["CLI or Python SDK"]
+        Headless["tether run --headless\ntether send / status / read"]
+    end
+
+    subgraph DB["SQLite WAL + FTS5 (.tether/tether.db)"]
+        Sessions["sessions | inbox | turns | observations | chunks_fts (BM25)"]
+    end
+
+    subgraph Worker["Detached session worker"]
+        Loop["Bounded agent loop"]
+        Mux["act(cmd, stdin?) multiplexer"]
+        Sandbox["Sandbox\n(bwrap + workspace jail)"]
+        Folder["Observation folder\n+ FTS5 chunk indexer"]
+    end
+
+    subgraph Tools["Opt-in capabilities"]
+        Builtins["bash | web | edit | mem | skill | agent | done"]
+        Custom["@tool functions"]
+    end
+
+    Headless <--> DB
+    DB <--> Loop
+    Loop --> Mux
+    Mux --> Sandbox
+    Sandbox --> Builtins
+    Sandbox --> Custom
+    Builtins --> Folder
+    Custom --> Folder
+    Folder --> DB
+    Folder --> Loop
+`} />
+
+## The Python SDK
+
+Tools are plain typed functions. The decorator introspects the signature and builds both the POSIX-style parser and the compact `--help` text, so the model never sees a JSON schema for it.
+
+```python
+import asyncio
+from tether import Harness, tool
+
+
+@tool(name="crm", description="Query or update customer subscription tiers")
+async def crm(customer_id: int, tier: str = "pro") -> str:
+    """Update customer tier. Allowed tiers: free, pro, enterprise."""
+    return f"Customer #{customer_id} updated to {tier}."
+
+
+async def main():
+    harness = Harness(
+        model="ollama/qwen3.5:9b",
+        tools=["mem", crm],
+        fold_observations_after=2,
+    )
+    session = await harness.run(
+        "Upgrade customer 1042 to enterprise, pin the audit note, and finish."
+    )
+    print(f"Session {session.id} [{session.status}]:\n{session.result}")
+
+
+asyncio.run(main())
+```
+
+Need a model behind a corporate gateway? Implement a one-method provider and register a prefix:
+
+```python
+from tether import Harness, ModelResponse, extract_fallback_action, register_provider
+
+
+class CustomGatewayProvider:
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
+
+    async def generate(self, messages: list[dict], tools: list[dict]) -> ModelResponse:
+        text = await call_my_gateway(self.model_name, messages, tools)  # your transport
+        return ModelResponse(content=text, action=extract_fallback_action(text))
+
+
+register_provider("gateway", CustomGatewayProvider)
+harness = Harness(model="gateway/qwen-enterprise-32b", tools=["web", "mem"])
+```
+
+The three built-in adapters (`ollama/`, `openai/`, `anthropic/`) are thin `httpx` clients, so the dependency list stays at two packages: `httpx` and `pyyaml`.
+
+## The benchmark: same task, same model, different harness
+
+Talk is cheap, so here is the test that mattered to me. I gave three setups the same real task. A full long-form video is too big to repeat cleanly, so I picked a smaller cousin of it, using a `shorts-maker` skill: produce a complete four-scene, 1080x1920 vertical YouTube Short with Manim animations, EdgeTTS voiceover, subtitles and FFmpeg muxing. These are averages over 2 trials per setup.
+
+| Configuration | Model | Steps | Total tokens | Wall-clock | vs. Claude Code |
+|---|---|---|---|---|---|
+| **Tether + local 8B** | `ollama/gemma4:e4b` (6 GB laptop GPU) | 2 | **3,073** ($0.00, local) | **53.1s** | **68.8x fewer tokens** (98.5% reduction) |
+| **Tether + Claude Sonnet** | `claude-sonnet` | 2 | **5,318** | **48.7s** | **39.7x fewer tokens** (97.5% reduction) |
+| **Claude Code CLI** | `claude-sonnet` | 5 | **211,355** | **97.4s** | 1.0x baseline |
+
+Here is the same data as bars. Linear scale, no tricks: the Tether bars are small because they really are that small.
+
+<Mermaid chart={`xychart-beta
+    title "Total tokens per video (lower is better)"
+    x-axis ["Tether + gemma4:e4b", "Tether + Sonnet", "Claude Code + Sonnet"]
+    y-axis "Total tokens" 0 --> 220000
+    bar [3073, 5318, 211355]
+`} />
+
+<Mermaid chart={`xychart-beta
+    title "Wall-clock seconds per video (lower is better)"
+    x-axis ["Tether + Sonnet", "Tether + gemma4:e4b", "Claude Code + Sonnet"]
+    y-axis "Seconds (including Manim, EdgeTTS and FFmpeg)" 0 --> 110
+    bar [48.7, 53.1, 97.4]
+`} />
+
+Look at the middle row against the last one. It is the *same frontier model*. The only variable is the harness. Tether needed 2 steps instead of 5, and cut tokens from 211,355 to 5,318. A large part of that gap is the roughly 41,000 tokens of framing that Claude Code re-sends each turn, versus a static prefix plus the skill that stays under about 400 tokens in Tether. And since most of the wall-clock time in Tether went to Manim and EdgeTTS actually rendering (around 43 seconds), the time saved was mostly the model not re-reading an enormous prompt.
+
+The first row is the one that made me happiest. A 9B-class model on a laptop GPU produced the whole four-scene spec on turn 1 and called `done` on turn 2, for zero dollars.
+
+That task had a pre-packaged render tool, which flatters any harness. So I also ran a harder, open-ended version: research, write raw Manim code, debug it, no packaged renderer.
+
+| Configuration | Steps | Peak context | Cumulative tokens | Wall-clock |
+|---|---|---|---|---|
+| Tether + `gemma4:e4b` (local 8B) | 9 | 2,440 | 13,420 | 150.7s |
+| Tether + `claude-sonnet` | 7 | 2,764 | 15,180 | 138.8s |
+| Claude Code + `claude-sonnet` | 13 | ~24,900 | 256,829 | 254.6s |
+
+<Mermaid chart={`xychart-beta
+    title "Open-ended run: cumulative tokens (lower is better)"
+    x-axis ["Tether + gemma4:e4b", "Tether + Sonnet", "Claude Code + Sonnet"]
+    y-axis "Cumulative tokens" 0 --> 270000
+    bar [13420, 15180, 256829]
+`} />
+
+On the same frontier model, that is **94.1% fewer tokens** and **45% faster**. In the local run, `gemma4:e4b` even hit a Manim `ShowCreation` deprecation error, read the self-healing feedback, switched to `Create`, and carried on. That is exactly the ACI behavior the SWE-agent paper argues for.
+
+<Callout icon="⚠️" type="warning">
+Read these numbers with the right amount of salt. It is two trials on one task family, run by the author of the tool, with a skill written for Tether's format. Claude Code is a general-purpose product doing much more than this task needs, and prompt caching changes what those tokens cost in dollars. The tokens-per-turn gap is real and structural; the exact multiples would shift on a different workload.
+</Callout>
+
+## Where Tether sits among the other micro-harnesses
+
+- **LangGraph, PydanticAI, Microsoft's agent framework.** These are powerful, but they send full JSON schemas for every tool (and every MCP server) up front, and they pull in heavier dependency trees. Tether has two dependencies, about 150 tokens of base framing, and 100% test coverage over roughly 2,000 lines of strict Python. If you need graph orchestration and a big integration ecosystem, use them. If you need a small, auditable core, that is Tether's niche.
+- **Hugging Face smolagents.** It asks the model to write raw multi-line Python on each turn, which works well on strong 70B+ models and is brittle at 8B or 9B. Tether uses a deterministic POSIX grammar instead, and normalizes common small-model quirks automatically: a stray leading `$ `, markdown fences around the command, or `<tool_call>` XML wrappers.
+- **PocketFlow and other in-memory micro-harnesses.** Most are a `while` loop around `messages.append(...)`: no persistence, no observation folding, no process supervision. Tether is headless-first. Sessions survive restarts, you can steer them with `tether send`, and parents orchestrate parallel children through BM25 digests rather than raw transcripts.
+
+The common thread is a trade. Tether gives up flexibility (one action channel, a deliberately small toolbox) to buy predictability, cheapness and small-model viability.
+
+## What Tether is still missing
+
+As of today (October 2026), Tether is at `v0.0.3`, and I would be lying if I said it was done. These are the gaps I feel most, and what I expect from each. They are plans and opinions, not promises with dates.
+
+**1. MCP support, without the schema tax.** Today Tether talks to the world through its built-in toolbox and your own `@tool` functions. A lot of useful integrations already ship as MCP servers, and I want them. But the usual way of plugging MCP into a harness is exactly the thing that started this project: every server dumps its full tool list and JSON schemas into the prompt up front. The version I want keeps the `act(cmd, stdin)` rule. An MCP server would show up as one line in the toolbox index (`github : Issues and pull requests`), and its tools would be discovered just in time, with `github --help` and `github issue create --help`, like any other command. The protocol stays on the outside of the envelope and the model never sees a schema it did not ask for. The hard part is the discovery step: a server with 80 tools needs a good `--help` hierarchy, or I have rebuilt the problem one level down.
+
+**2. Remote and shared control.** Headless sessions are already rows in SQLite and `tether send` can steer one, but only from the machine that owns the database. I want to attach to a session from somewhere else: watch its steps stream live from my phone, send a nudge, or let a teammate look at the same run. That probably means a small authenticated server in front of the same inbox, and it raises real questions I have not answered yet: who is allowed to steer, how a shared session handles two people typing at once, and how to keep the sandbox guarantees when the control surface leaves localhost. I would rather ship it slowly than ship a remote shell for an LLM carelessly.
+
+**3. Replay and evaluation.** My benchmark is two trials on one task family. That is a start, not evidence. Every Tether turn is already persisted, so the missing piece is a way to replay a recorded session against a different model or a changed prompt, and to score the outcome. That would turn "it felt cheaper" into a regression test: run the same twenty tasks on `gemma4:e4b` and on Sonnet every time I touch the context folding rules, and see exactly what moved in tokens, steps and success rate.
+
+**4. Approval gates and permission policies.** The sandbox is deterministic, but it is mostly all-or-nothing today. I want per-command policies in the envelope: this session may `web fetch` freely, may `edit write` only under `docs/`, and must pause and wait for a human before any `bash` that is not on an allowlist. A paused session would just be another state in SQLite, waiting in the inbox for a `tether send`. It is the same philosophy as the rest of the project: do not ask the model to be careful, make carefulness a property of the envelope.
+
+If I had to pick the order, it would be replay first (so I can trust every later change), then MCP, then approvals, then remote control, because remote control multiplies the risk of everything before it.
+
+## What I would take away from this
+
+The lesson was not "Claude Code is bad." It is a capable general-purpose product, and for open-ended work in a big codebase its breadth earns its cost. The lesson is that **the harness is part of your cost and reliability budget**, and most of us never look at it. Count the tokens your agent spends before it reads your task. Ask whether the model needs 20 schemas or one command line. Treat the context window as a cache with an eviction policy, not a log file.
+
+If you have a repeatable, well-scoped workflow and want it to run on a laptop GPU or at a fraction of the token bill, try a micro-harness. Tether is one; building your own is a good weekend.
+
+### Further Reading
+
+- [Tether on GitHub](https://github.com/igormcsouza/tether)
+- [Tether documentation](https://igormcsouza.github.io/tether/)
+- [`tether-sdk` on PyPI](https://pypi.org/project/tether-sdk/)
+- Wang et al., [Executable Code Actions Elicit Better LLM Agents (CodeAct)](https://arxiv.org/abs/2402.01030), ICML 2024
+- Yang et al., [SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering](https://arxiv.org/abs/2405.15793), NeurIPS 2024
+- Maia et al., [LLM-Native Applications as a Paradigm for AI-Driven Software Architecture](https://papers.ssrn.com/abstract=6799068), SSRN preprint, 2026
+- Packer et al., [MemGPT: Towards LLMs as Operating Systems](https://arxiv.org/abs/2310.08560), 2023
