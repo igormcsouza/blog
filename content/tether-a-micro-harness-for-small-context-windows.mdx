@@ -80,7 +80,7 @@ The model can always get the full text back. It just has to ask, instead of carr
 
 ### Problem 4: drift, loops and security
 
-The last failure mode is the one that actually keeps me up at night. LLMs are probabilistic, and a harness that trusts the model to police itself ("please be careful, please stop when done") is building on sand. Tether's README frames its stance with the *probabilistic core, deterministic envelope* idea from Maia et al. (2026). I could not independently verify that paper while writing this, so treat it as the README's citation rather than something I have audited; the engineering below stands on its own without it.
+The last failure mode is the one that actually keeps me up at night. LLMs are probabilistic, and a harness that trusts the model to police itself ("please be careful, please stop when done") is building on sand. The framing I use for this, *probabilistic core, deterministic envelope*, is my own shorthand, not a quote. What it builds on is Maia et al. (2026), [*LLM-Native Applications as a Paradigm for AI-Driven Software Architecture*](https://papers.ssrn.com/abstract=6799068). They argue that LLM-native systems have non-deterministic control flow, so the architecture needs runtime assurance mechanisms such as output validation and access control around the model. Two caveats: it is an SSRN preprint that has not been peer reviewed, and it is a conceptual taxonomy, not an experiment. It motivates the stance, it does not prove my particular mechanisms work.
 
 The model is the reasoning kernel. Everything around it is deterministic code:
 
@@ -221,4 +221,5 @@ If you have a repeatable, well-scoped workflow and want it to run on a laptop GP
 - [`tether-sdk` on PyPI](https://pypi.org/project/tether-sdk/)
 - Wang et al., [Executable Code Actions Elicit Better LLM Agents (CodeAct)](https://arxiv.org/abs/2402.01030), ICML 2024
 - Yang et al., [SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering](https://arxiv.org/abs/2405.15793), NeurIPS 2024
+- Maia et al., [LLM-Native Applications as a Paradigm for AI-Driven Software Architecture](https://papers.ssrn.com/abstract=6799068), SSRN preprint, 2026
 - Packer et al., [MemGPT: Towards LLMs as Operating Systems](https://arxiv.org/abs/2310.08560), 2023
